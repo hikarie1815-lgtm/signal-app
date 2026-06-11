@@ -1,0 +1,12 @@
+# Render Blueprint: これがあると設定が全部自動になります
+services:
+  - type: web
+    name: signal-desk
+    runtime: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd backend && python main.py
+    envVars:
+      - key: TWELVEDATA_API_KEY
+        sync: false

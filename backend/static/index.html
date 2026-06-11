@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SIGNAL DESK | リアルタイム売買シグナル</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{
+  --bg:#0A0E14; --panel:#121826; --panel2:#1A2233; --line:#232D42;
+  --text:#E6EAF2; --muted:#8A93A8; --buy:#16C79A; --sell:#FF5C72;
+  --wait:#6B7488; --gold:#E8B450; --mono:'IBM Plex Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans JP',sans-serif;font-size:14px;padding-bottom:40px}
+.mono{font-family:var(--mono)}
+header{position:sticky;top:0;z-index:30;background:rgba(10,14,20,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px}
+.logo{font-weight:700;letter-spacing:.08em}.logo span{color:var(--gold)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--sell);transition:.3s}
+.dot.on{background:var(--buy);box-shadow:0 0 8px var(--buy)}
+.cap{margin-left:auto;font-size:11px;color:var(--muted);text-align:right;line-height:1.3}
+.cap b{color:var(--text);font-family:var(--mono)}
+.bell{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer}
+.banner{display:none;background:#3A1620;color:#FFB3BE;border-bottom:1px solid #5A2230;padding:8px 14px;font-size:12px;font-weight:500}
+.tabs{display:flex;gap:6px;padding:10px 14px 4px;overflow-x:auto}
+.tab{flex:0 0 auto;padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap}
+.tab.active{background:var(--gold);color:#1A1408;border-color:var(--gold);font-weight:700}
+#list{padding:8px 12px;display:grid;gap:8px;max-width:760px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center;cursor:pointer;transition:border-color .2s}
+.card:active{border-color:var(--gold)}
+.rank{font-family:var(--mono);font-size:18px;font-weight:600;color:var(--muted);text-align:center}
+.rank.top{color:var(--gold)}
+.sym{font-weight:700;font-size:15px}
+.sname{font-size:11px;color:var(--muted)}
+.price{font-family:var(--mono);font-size:15px;font-weight:600;margin-top:2px;transition:color .15s}
+.price.up{color:var(--buy)} .price.dn{color:var(--sell)}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;font-size:10.5px;color:var(--muted)}
+.chips b{color:var(--text);font-family:var(--mono)}
+.right{display:flex;flex-direction:column;align-items:center;gap:4px}
+.ring{position:relative;width:58px;height:58px}
+.ring svg{transform:rotate(-90deg)}
+.ring .num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:600;font-size:15px}
+.sig{font-size:10px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:6px;white-space:nowrap}
+.sig.SB{background:rgba(22,199,154,.18);color:var(--buy);border:1px solid var(--buy)}
+.sig.B{background:rgba(22,199,154,.12);color:var(--buy)}
+.sig.W{background:rgba(107,116,136,.15);color:var(--wait)}
+.sig.S{background:rgba(255,92,114,.12);color:var(--sell)}
+.sig.SS{background:rgba(255,92,114,.18);color:var(--sell);border:1px solid var(--sell)}
+.card.na{opacity:.55;grid-template-columns:44px 1fr}
+.empty{color:var(--muted);text-align:center;padding:40px 0;font-size:13px}
+/* 詳細 */
+#detail{position:fixed;inset:0;z-index:40;background:var(--bg);display:none;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#detail.open{display:block}
+.dhead{position:sticky;top:0;background:rgba(10,14,20,.95);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 14px;display:flex;align-items:center;gap:10px;z-index:5}
+.back{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer}
+.dbody{max-width:760px;margin:0 auto;padding:12px}
+.sec{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+.sec h3{font-size:12px;color:var(--gold);letter-spacing:.1em;margin-bottom:10px;font-weight:700}
+#chart{height:280px;border-radius:8px;overflow:hidden}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px}
+.kv{background:var(--panel2);border-radius:10px;padding:8px 10px}
+.kv .k{font-size:10px;color:var(--muted)} .kv .v{font-family:var(--mono);font-size:14px;font-weight:600;margin-top:2px}
+.v.pos{color:var(--buy)} .v.neg{color:var(--sell)}
+ul.rs{list-style:none}
+ul.rs li{padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px}
+ul.rs li:last-child{border:none}
+ul.rs li.av{color:#FFB68A}
+.bar{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:11px}
+.bar .lbl{width:56px;color:var(--muted)}
+.bar .tr{flex:1;height:8px;background:var(--panel2);border-radius:4px;position:relative}
+.bar .fl{position:absolute;top:0;bottom:0;border-radius:4px}
+.bar .val{width:36px;text-align:right;font-family:var(--mono)}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{color:var(--muted);text-align:left;padding:5px 4px;border-bottom:1px solid var(--line);font-weight:500}
+td{padding:5px 4px;border-bottom:1px solid var(--line);font-family:var(--mono)}
+select,input,button.act{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit}
+button.act{cursor:pointer}
+button.gold{background:var(--gold);color:#1A1408;border-color:var(--gold);font-weight:700}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.csv{color:var(--gold);font-size:12px;text-decoration:underline}
+.note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6}
+footer{text-align:center;color:var(--muted);font-size:10px;padding:20px 14px;line-height:1.7}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="dot" id="wsdot"></div>
+  <div class="logo">SIGNAL <span>DESK</span></div>
+  <div class="cap">運用資金 <b id="capital">--</b><br>本日損益 <b id="todaypnl">--</b></div>
+  <button class="bell" id="bell" title="ブラウザ通知を有効化">🔔</button>
+</header>
+<div class="banner" id="banner"></div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="all">総合ランキング</button>
+  <button class="tab" data-tab="buy">買い期待値</button>
+  <button class="tab" data-tab="sell">売り期待値</button>
+  <button class="tab" data-tab="strong">強シグナルのみ</button>
+</div>
+
+<div id="list"><div class="empty">サーバーに接続中…</div></div>
+
+<footer>本アプリは売買判断の補助を目的とした分析ツールであり、投資助言ではありません。<br>最終的な投資判断はご自身の責任で行ってください。</footer>
+
+<!-- 銘柄詳細 -->
+<div id="detail">
+  <div class="dhead">
+    <button class="back" onclick="closeDetail()">← 戻る</button>
+    <div><div class="sym" id="dsym">--</div><div class="sname" id="dname"></div></div>
+    <div style="margin-left:auto" class="price mono" id="dprice">--</div>
+  </div>
+  <div class="dbody">
+    <div class="sec"><h3>チャート(5分足)</h3><div id="chart"></div></div>
+    <div class="sec"><h3>現在のシグナル</h3>
+      <div class="grid2" id="dsignal"></div>
+      <div style="margin-top:12px"><div class="note" style="margin:0 0 4px">スコア内訳</div><div id="dparts"></div></div>
+    </div>
+    <div class="sec"><h3>エントリー理由 / 回避理由</h3><ul class="rs" id="dreasons"></ul></div>
+    <div class="sec"><h3>成績(直近データの簡易バックテスト)</h3><div class="grid2" id="dstats"></div></div>
+    <div class="sec"><h3>バックテスト実行</h3>
+      <div class="row">
+        <select id="bttf"><option value="1min">1分足</option><option value="5min" selected>5分足</option><option value="15min">15分足</option><option value="1h">1時間足</option></select>
+        <button class="act gold" id="btrun">実行</button>
+        <a class="csv" id="btcsv" style="display:none" target="_blank">CSVダウンロード</a>
+      </div>
+      <div class="grid2" id="btres" style="margin-top:10px"></div>
+      <div class="note">エントリー: BUY/SELLシグナル発生の次バー始値 / 決済: SL(1.5×ATR)・TP(3.0×ATR)・逆シグナル。未来データは参照しません。</div>
+    </div>
+    <div class="sec"><h3>損益を記録(1日最大損失・連敗管理)</h3>
+      <div class="row">
+        <input type="number" id="jpnl" placeholder="損益(円) 例: -8500" style="width:150px">
+        <select id="jdir"><option value="BUY">買い</option><option value="SELL">売り</option></select>
+        <button class="act" id="jadd">記録する</button>
+      </div>
+      <div class="note">実際に取引した結果を記録すると、1日−3万円到達や連敗時に警告・通知します。</div>
+    </div>
+    <div class="sec"><h3>シグナル履歴</h3>
+      <table><thead><tr><th>時刻</th><th>シグナル</th><th>点</th><th>価格</th></tr></thead><tbody id="dhist"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const fmt=(n,d)=>n==null?'--':Number(n).toLocaleString('ja-JP',{maximumFractionDigits:d??5});
+const yen=n=>n==null?'--':(n>=0?'+':'')+Math.round(n).toLocaleString()+'円';
+let SNAP={}, PRICES={}, PREV={}, TAB='all', CUR=null, chart=null, series=null;
+let lastC=null, chartTimer=null;
+
+/* ---------- WebSocket ---------- */
+let ws, retry=0;
+function connect(){
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');
+  ws.onopen=()=>{$('wsdot').classList.add('on');retry=0;};
+  ws.onclose=()=>{$('wsdot').classList.remove('on');setTimeout(connect,Math.min(10000,1000*(++retry)));};
+  ws.onmessage=e=>{
+    const m=JSON.parse(e.data);
+    PREV=PRICES; PRICES=m.prices||{}; SNAP=m.data||{};
+    $('capital').textContent='¥'+fmt(m.capital,0);
+    updateJournal(m.journal||{});
+    (m.alerts||[]).forEach(a=>{ if(Notification.permission==='granted') new Notification(a.title,{body:a.body}); });
+    render(); renderDetailLive(); updateLiveCandle();
+  };
+}
+connect();
+
+function updateJournal(j){
+  $('todaypnl').textContent=j.today_pnl==null?'--':yen(j.today_pnl);
+  const b=$('banner');
+  if(j.daily_loss_hit){b.style.display='block';b.textContent='⚠️ 1日最大損失('+fmt(j.daily_max_loss,0)+'円)に到達しました。本日の取引は停止を推奨します。';}
+  else if(j.consec_warning){b.style.display='block';b.textContent='⚠️ '+j.consec_losses+'連敗中です。取引を一時停止して見直しを推奨します。';}
+  else b.style.display='none';
+}
+
+/* ---------- ランキング描画 ---------- */
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); TAB=t.dataset.tab; render();
+});
+
+function sigClass(s){return s==='STRONG BUY'?'SB':s==='BUY'?'B':s==='SELL'?'S':s==='STRONG SELL'?'SS':'W';}
+function sigColor(s){return ['STRONG BUY','BUY'].includes(s)?'var(--buy)':['SELL','STRONG SELL'].includes(s)?'var(--sell)':'var(--wait)';}
+
+function sorted(){
+  const arr=Object.values(SNAP);
+  const ready=arr.filter(a=>a.ready), na=arr.filter(a=>!a.ready);
+  let list;
+  if(TAB==='buy') list=ready.slice().sort((a,b)=>((b.stats_buy?.ev_r??-9)-(a.stats_buy?.ev_r??-9))||b.score-a.score);
+  else if(TAB==='sell') list=ready.slice().sort((a,b)=>((b.stats_sell?.ev_r??-9)-(a.stats_sell?.ev_r??-9))||a.score-b.score);
+  else if(TAB==='strong') list=ready.filter(a=>a.signal.startsWith('STRONG')).sort((a,b)=>Math.abs(b.score-50)-Math.abs(a.score-50));
+  else list=ready.slice().sort((a,b)=>Math.abs(b.score-50)-Math.abs(a.score-50));
+  return {list,na};
+}
+
+function ring(score,sig){
+  const C=2*Math.PI*25, d=C*score/100, col=sigColor(sig);
+  return `<div class="ring"><svg width="58" height="58"><circle cx="29" cy="29" r="25" fill="none" stroke="var(--panel2)" stroke-width="5"/><circle cx="29" cy="29" r="25" fill="none" stroke="${col}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${d} ${C-d}"/></svg><div class="num">${score}</div></div>`;
+}
+
+function render(){
+  const {list,na}=sorted(); const el=$('list');
+  if(!list.length&&!na.length){el.innerHTML='<div class="empty">データ取得中…</div>';return;}
+  let html='';
+  list.forEach((a,i)=>{
+    const p=PRICES[a.symbol]??a.price, pp=PREV[a.symbol];
+    const cls=pp!=null&&p>pp?'up':pp!=null&&p<pp?'dn':'';
+    const st=TAB==='buy'?a.stats_buy:TAB==='sell'?a.stats_sell:a.stats;
+    const pos=a.position||{};
+    html+=`<div class="card" onclick="openDetail('${a.symbol}')">
+      <div class="rank ${i<3?'top':''}">${i+1}</div>
+      <div>
+        <span class="sym">${a.symbol}</span> <span class="sname">${a.name}</span>
+        <div class="price ${cls}">${fmt(p)}</div>
+        <div class="chips">
+          <span>勝率 <b>${st?st.win_rate+'%':'--'}</b></span>
+          <span>PF <b>${st?st.pf:'--'}</b></span>
+          <span>期待値 <b style="color:${st&&st.ev_jpy>0?'var(--buy)':st&&st.ev_jpy<0?'var(--sell)':''}">${st?yen(st.ev_jpy):'--'}</b></span>
+          <span>SL <b>${fmt(a.sl)}</b></span><span>TP <b>${fmt(a.tp)}</b></span>
+          <span>RR <b>${a.rr}</b></span><span>推奨 <b>${pos.lots??'--'}${a.type==='fx'?'ロット':''}</b></span>
+        </div>
+      </div>
+      <div class="right">${ring(a.score,a.signal)}<span class="sig ${sigClass(a.signal)}">${a.signal}</span></div>
+    </div>`;
+  });
+  na.forEach(a=>{html+=`<div class="card na"><div class="rank">--</div><div><span class="sym">${a.symbol}</span> <span class="sname">${a.name}</span><div class="chips">${a.error||'データ取得中…'}</div></div></div>`;});
+  if(TAB==='strong'&&!list.length) html='<div class="empty">現在STRONGシグナルはありません</div>'+html;
+  el.innerHTML=html;
+}
+
+/* ---------- 詳細画面 ---------- */
+async function openDetail(sym){
+  CUR=sym; $('detail').classList.add('open'); document.body.style.overflow='hidden';
+  $('dsym').textContent=sym; $('dname').textContent=SNAP[sym]?.name||'';
+  $('btres').innerHTML=''; $('btcsv').style.display='none';
+  renderDetailLive();
+  const r=await fetch('/api/symbol/'+sym).then(r=>r.json()).catch(()=>null);
+  if(!r) return;
+  drawChart(r.candles||[]);
+  clearInterval(chartTimer);
+  chartTimer=setInterval(async()=>{   // 60秒ごとに確定足で補正
+    if(!CUR) return;
+    const x=await fetch('/api/symbol/'+CUR).then(r=>r.json()).catch(()=>null);
+    if(x&&x.candles&&x.candles.length&&series){
+      series.setData(x.candles);
+      lastC={...x.candles[x.candles.length-1]};
+    }
+  },60000);
+  $('dhist').innerHTML=(r.history||[]).map(h=>`<tr><td>${h.time.slice(5,16).replace('T',' ')}</td><td style="color:${sigColor(h.signal)}">${h.signal}</td><td>${h.score}</td><td>${fmt(h.price)}</td></tr>`).join('')||'<tr><td colspan="4">履歴なし</td></tr>';
+}
+function closeDetail(){$('detail').classList.remove('open');document.body.style.overflow='';CUR=null;clearInterval(chartTimer);lastC=null;if(chart){chart.remove();chart=null;}}
+
+function kv(k,v,cls=''){return `<div class="kv"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;}
+
+function renderDetailLive(){
+  if(!CUR) return;
+  const a=SNAP[CUR]; if(!a||!a.ready) return;
+  const p=PRICES[CUR]??a.price;
+  $('dprice').textContent=fmt(p);
+  const pos=a.position||{};
+  $('dsignal').innerHTML=
+    kv('シグナル',`<span style="color:${sigColor(a.signal)}">${a.signal}</span>`)+
+    kv('AIスコア',a.score+'点')+
+    kv('推奨損切り',fmt(a.sl))+kv('推奨利確',fmt(a.tp))+
+    kv('リスクリワード','1 : '+a.rr)+
+    kv('推奨'+(a.type==='fx'?'ロット':'数量'),(pos.lots??'--'))+
+    kv('許容損失',fmt(pos.risk_jpy,0)+'円')+
+    kv('SL幅',(pos.sl_pips??'--')+(a.type==='fx'?'pips':'pt'))+
+    kv('RSI',a.rsi)+kv('ADX',a.adx)+
+    kv('15分足',a.htf['15m'])+kv('1時間足',a.htf['1h']);
+  $('dparts').innerHTML=Object.entries(a.parts||{}).map(([k,v])=>{
+    const w=Math.min(100,Math.abs(v)*5), col=v>=0?'var(--buy)':'var(--sell)';
+    const left=v>=0?'left:50%':'right:50%';
+    return `<div class="bar"><span class="lbl">${k}</span><div class="tr"><div class="fl" style="${left};width:${w/2}%;background:${col}"></div></div><span class="val">${v>0?'+':''}${v}</span></div>`;
+  }).join('');
+  $('dreasons').innerHTML=
+    (a.reasons||[]).map(r=>'<li>✅ '+r+'</li>').join('')+
+    (a.avoid_reasons||[]).map(r=>'<li class="av">⚠️ '+r+'</li>').join('')||'<li>特筆事項なし</li>';
+  const s=a.stats, dd=s?s.max_dd_r:null;
+  $('dstats').innerHTML=s?(
+    kv('勝率',s.win_rate+'%',s.win_rate>=55?'pos':'')+
+    kv('PF',s.pf,s.pf>=1.3?'pos':s.pf<1?'neg':'')+
+    kv('期待値/回',yen(s.ev_jpy),s.ev_jpy>0?'pos':'neg')+
+    kv('最大DD',dd+'R')+kv('取引数',s.trades)+
+    kv('買い期待値',a.stats_buy?yen(a.stats_buy.ev_jpy):'--',a.stats_buy?.ev_jpy>0?'pos':'neg')+
+    kv('売り期待値',a.stats_sell?yen(a.stats_sell.ev_jpy):'--',a.stats_sell?.ev_jpy>0?'pos':'neg')
+  ):'<div class="note">統計を計算中です(起動後1〜2分)…</div>';
+}
+
+/* ---------- ローソク足リアルタイム更新(5秒単位) ---------- */
+let lastTick=0;
+function updateLiveCandle(){
+  if(!CUR||!series||!lastC) return;
+  const now=Date.now();
+  if(now-lastTick<5000) return;           // 5秒に1回だけ更新
+  const p=PRICES[CUR];
+  if(p==null) return;
+  lastTick=now;
+  const tz=-new Date().getTimezoneOffset()*60;
+  const bucket=Math.floor((now/1000+tz)/300)*300;  // 現在の5分足の開始時刻
+  if(bucket>lastC.time){
+    lastC={time:bucket,open:p,high:p,low:p,close:p}; // 新しい足が誕生
+  }else{
+    lastC.close=p;
+    if(p>lastC.high)lastC.high=p;
+    if(p<lastC.low)lastC.low=p;
+  }
+  try{series.update(lastC);}catch(e){}
+}
+
+function drawChart(candles){
+  const el=$('chart'); el.innerHTML='';
+  if(chart){chart.remove();chart=null;}
+  if(!candles.length){el.innerHTML='<div class="empty">チャートデータなし</div>';return;}
+  chart=LightweightCharts.createChart(el,{
+    layout:{background:{color:'#0F141F'},textColor:'#8A93A8',fontFamily:'IBM Plex Mono'},
+    grid:{vertLines:{color:'#1A2233'},horzLines:{color:'#1A2233'}},
+    timeScale:{timeVisible:true,secondsVisible:false},
+    rightPriceScale:{borderColor:'#232D42'},
+    height:280, autoSize:true,
+  });
+  series=chart.addCandlestickSeries({upColor:'#16C79A',downColor:'#FF5C72',borderVisible:false,wickUpColor:'#16C79A',wickDownColor:'#FF5C72'});
+  series.setData(candles);
+  lastC=candles.length?{...candles[candles.length-1]}:null;
+  chart.timeScale().fitContent();
+}
+
+/* ---------- バックテスト ---------- */
+$('btrun').onclick=async()=>{
+  if(!CUR) return;
+  $('btrun').disabled=true;$('btrun').textContent='計算中…';
+  try{
+    const r=await fetch('/api/backtest/'+CUR+'?tf='+$('bttf').value,{method:'POST'}).then(r=>r.json());
+    if(r.error){$('btres').innerHTML='<div class="note">'+r.error+'</div>';}
+    else{
+      const s=r.stats;
+      $('btres').innerHTML=
+        kv('期間',r.period.from.slice(5,16)+'〜')+kv('取引数',s.trades)+
+        kv('勝率',s.win_rate+'%',s.win_rate>=55?'pos':'')+
+        kv('PF',s.pf,s.pf>=1.3?'pos':s.pf<1?'neg':'')+
+        kv('期待値/回',yen(s.ev_jpy),s.ev_jpy>0?'pos':'neg')+
+        kv('最大DD',s.max_dd_r+'R')+
+        kv('総損益',s.total_r+'R',s.total_r>0?'pos':'neg')+
+        kv('買い側',r.stats_buy.trades+'回 勝率'+r.stats_buy.win_rate+'%')+
+        kv('売り側',r.stats_sell.trades+'回 勝率'+r.stats_sell.win_rate+'%');
+      $('btcsv').href='/api/backtest/csv/'+r.csv;$('btcsv').style.display='inline';
+    }
+  }catch(e){$('btres').innerHTML='<div class="note">エラー: '+e+'</div>';}
+  $('btrun').disabled=false;$('btrun').textContent='実行';
+};
+
+/* ---------- 損益記録 ---------- */
+$('jadd').onclick=async()=>{
+  const v=parseFloat($('jpnl').value);
+  if(isNaN(v)||!CUR){alert('損益(円)を入力してください');return;}
+  const j=await fetch('/api/journal',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({symbol:CUR,direction:$('jdir').value,pnl_jpy:v})}).then(r=>r.json());
+  $('jpnl').value=''; updateJournal(j);
+  alert('記録しました(本日 '+yen(j.today_pnl)+')');
+};
+
+/* ---------- 通知許可 ---------- */
+$('bell').onclick=async()=>{
+  const p=await Notification.requestPermission();
+  $('bell').textContent=p==='granted'?'🔔✓':'🔕';
+};
+if(Notification.permission==='granted')$('bell').textContent='🔔✓';
+</script>
+</body>
+</html>
