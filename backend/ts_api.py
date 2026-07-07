@@ -267,6 +267,21 @@ async def ts_options(rest: str):
     return ok({})
 
 
+@router.get("/api/ts/watch")
+async def ts_watch_status():
+    """24時間監視の状態確認。"""
+    try:
+        import ts_watch
+        return ok({"watching": ts_watch.STATE["started"],
+                   "symbols": [w[0] for w in ts_watch.WATCH],
+                   "last_run": ts_watch.STATE["last_run"],
+                   "sent_today": ts_watch.STATE["sent_today"],
+                   "results": ts_watch.STATE["results"],
+                   "errors": ts_watch.STATE["errors"]})
+    except Exception as e:  # noqa: BLE001
+        return ok({"watching": False, "error": str(e)}, 502)
+
+
 @router.get("/api/ts/health")
 async def ts_health():
     return ok({
