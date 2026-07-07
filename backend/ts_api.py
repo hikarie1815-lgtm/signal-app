@@ -273,6 +273,8 @@ async def ts_watch_status():
     try:
         import ts_watch
         return ok({"watching": ts_watch.STATE["started"],
+                   "boot_time": ts_watch.STATE.get("boot_time"),
+                   "heartbeat": ts_watch.STATE.get("heartbeat"),
                    "symbols": [w[0] for w in ts_watch.WATCH],
                    "last_run": ts_watch.STATE["last_run"],
                    "sent_today": ts_watch.STATE["sent_today"],
