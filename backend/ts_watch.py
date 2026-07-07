@@ -35,7 +35,7 @@ WATCH = [
 
 INTERVAL_SEC = 180          # 監視周期
 DAILY_CAP = 80              # 1日の通知上限
-COOLDOWN = {"entry": 90 * 60, "align": 4 * 3600, "spike": 3600, "fake": 3600}
+COOLDOWN = {"entry": 90 * 60, "near": 3 * 3600, "align": 4 * 3600, "spike": 3600, "fake": 3600}
 
 STATE = {"last_run": None, "heartbeat": None, "boot_time": None,
          "results": {}, "sent_today": 0,
@@ -293,6 +293,14 @@ async def maybe_notify(sym_id, name, kind, r):
                 f"利確{f(p['tp'])} (RR 1:{p['rr']:.1f})\n"
                 f"根拠: {'・'.join(r['reasons'])}\n"
                 f"※飛び乗らず引き付けて。最終判断はご自身で。")
+        await _line(body)
+    if r["grade"] == "B" and r["dir"] != "none" and _cool_ok(sym_id, "near"):
+        p = r["plan"]
+        body = (f"{name}({sym_id}) {dir_j}チャンス接近 判定B\n"
+                f"現在値 {f(r['price'])}\n"
+                f"条件が揃いつつあります。目安: エントリー{f(p['entry'])} / "
+                f"損切り{f(p['sl'])} / 利確{f(p['tp'])}\n"
+                f"※まだ様子見レベル。引き付けてから。")
         await _line(body)
     if r["aligned"] and _cool_ok(sym_id, "align"):
         t = "上昇" if r["dir"] == "buy" else "下降"
