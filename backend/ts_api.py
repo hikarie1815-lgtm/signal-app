@@ -99,7 +99,7 @@ def ok(data, status=200):
         status_code=status,
         headers={
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
             "Access-Control-Allow-Headers": "*",
             "Cache-Control": "no-store",
         },
