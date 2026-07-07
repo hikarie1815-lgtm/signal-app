@@ -37,9 +37,19 @@ INTERVAL_SEC = 180          # 監視周期
 DAILY_CAP = 80              # 1日の通知上限
 COOLDOWN = {"entry": 90 * 60, "align": 4 * 3600, "spike": 3600, "fake": 3600}
 
-STATE = {"last_run": None, "results": {}, "sent_today": 0,
+STATE = {"last_run": None, "heartbeat": None, "boot_time": None,
+         "results": {}, "sent_today": 0,
          "sent_date": "", "errors": {}, "started": False}
 _last_sent: dict = {}
+_task = None  # タスクへの強い参照（GC回収防止）
+
+
+def start():
+    """main.pyのlifespanから呼ぶ。タスク参照を保持して起動する。"""
+    global _task
+    import asyncio as _aio
+    _task = _aio.create_task(watch_loop())
+    return _task
 
 
 # ================= テクニカル指標（純Python） =================
@@ -320,10 +330,12 @@ async def watch_loop():
     if STATE["started"]:
         return
     STATE["started"] = True
+    STATE["boot_time"] = datetime.now(JST).isoformat(timespec="seconds")
     log.info("TradeScope 24時間監視を開始（%d銘柄・%d秒周期）", len(WATCH), INTERVAL_SEC)
-    await asyncio.sleep(20)
+    await asyncio.sleep(5)
     while True:
         jst = datetime.now(JST)
+        STATE["heartbeat"] = jst.isoformat(timespec="seconds")
         weekend = jst.weekday() >= 5
         for sym_id, name, kind, digits in WATCH:
             if weekend and kind in ("fx", "metal"):
