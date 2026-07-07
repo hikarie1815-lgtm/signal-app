@@ -262,6 +262,17 @@ async def td_price(internal: str):
 
 
 # ---------------- ルート ----------------
+@router.get("/app")
+async def ts_app():
+    """TradeScope本体を配信（同一オリジンなのでCORS問題が発生しない）。"""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    p = Path(__file__).parent / "static" / "tradescope.html"
+    if not p.exists():
+        return ok({"error": "tradescope.htmlが未配置です"}, 404)
+    return FileResponse(p, media_type="text/html")
+
+
 @router.options("/api/ts/{rest:path}")
 async def ts_options(rest: str):
     return ok({})
