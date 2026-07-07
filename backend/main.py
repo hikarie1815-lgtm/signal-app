@@ -126,6 +126,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="シグナルダッシュボード", lifespan=lifespan)
+
+# TradeScope用データ配信API（GMOコイン為替・PAXG金価格の中継）
+import ts_api
+app.include_router(ts_api.router)
 STATIC = Path(__file__).parent / "static"
 
 
