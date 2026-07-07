@@ -1,0 +1,1718 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>TradeScope — 裁量トレード支援ターミナル</title>
+<style>
+:root{
+  --bg:#0a0e15; --panel:#111827; --panel2:#171f2e; --line:#232d40;
+  --text:#e8edf5; --sub:#8b96a8; --mono:'SF Mono','Consolas','Menlo',monospace;
+  --buy:#26c6a2; --sell:#f2586f; --warn:#f0b429; --info:#5b9cf5;
+  --s-s:#26c6a2; --s-a:#7dd657; --s-b:#f0b429; --s-c:#f27b3d; --s-d:#8b96a8;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',sans-serif;font-size:14px;line-height:1.6;padding-bottom:70px}
+h1,h2,h3{font-weight:700}
+button{font-family:inherit;cursor:pointer;border:none;border-radius:8px}
+input,select,textarea{font-family:inherit;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px;font-size:14px;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--info);border-color:transparent}
+/* header */
+.hdr{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(10,14,21,.92);backdrop-filter:blur(8px);z-index:50}
+.hdr .logo{font-size:17px;letter-spacing:.04em}
+.hdr .logo b{color:var(--buy)}
+.hdr .status{margin-left:auto;font-size:11px;color:var(--sub);font-family:var(--mono)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
+.dot.on{background:var(--buy);box-shadow:0 0 6px var(--buy)}
+.dot.off{background:var(--sub)}
+/* tabs bottom */
+.tabs{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--panel);border-top:1px solid var(--line);z-index:60}
+.tabs button{flex:1;background:none;color:var(--sub);padding:10px 2px 12px;font-size:10.5px;display:flex;flex-direction:column;align-items:center;gap:3px;border-radius:0}
+.tabs button .ic{font-size:18px;line-height:1}
+.tabs button.act{color:var(--buy)}
+/* layout */
+.scr{display:none;padding:14px;max-width:1100px;margin:0 auto}
+.scr.act{display:block}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.card h3{font-size:13px;color:var(--sub);letter-spacing:.08em;margin-bottom:10px;text-transform:uppercase}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:520px){.grid2{grid-template-columns:1fr}}
+.btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:9px 14px;font-size:13px}
+.btn.pri{background:var(--buy);color:#04211a;font-weight:700;border:none}
+.btn.dng{background:transparent;border:1px solid var(--sell);color:var(--sell)}
+.btn:active{transform:scale(.97)}
+.muted{color:var(--sub);font-size:12px}
+/* score stamp (signature element) */
+.stamp{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800;border:3px solid;flex-shrink:0;font-family:var(--mono);transform:rotate(-6deg)}
+.stamp.sm{width:34px;height:34px;font-size:16px;border-width:2px;transform:none}
+.sc-S{color:var(--s-s);border-color:var(--s-s);background:rgba(38,198,162,.08)}
+.sc-A{color:var(--s-a);border-color:var(--s-a);background:rgba(125,214,87,.08)}
+.sc-B{color:var(--s-b);border-color:var(--s-b);background:rgba(240,180,41,.08)}
+.sc-C{color:var(--s-c);border-color:var(--s-c);background:rgba(242,123,61,.08)}
+.sc-D{color:var(--s-d);border-color:var(--s-d);background:rgba(139,150,168,.08)}
+.dir-buy{color:var(--buy)} .dir-sell{color:var(--sell)} .dir-none{color:var(--sub)}
+/* dashboard table */
+.tblwrap{overflow-x:auto}
+table.dash{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
+table.dash th{color:var(--sub);font-weight:500;font-size:11px;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+table.dash td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.dash tr.clickable{cursor:pointer}
+table.dash tr.clickable:active{background:var(--panel2)}
+.px{font-family:var(--mono);font-size:13px}
+.badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700}
+.badge.nodata{background:rgba(139,150,168,.15);color:var(--sub)}
+.badge.mock{background:rgba(240,180,41,.15);color:var(--warn)}
+.badge.live{background:rgba(38,198,162,.14);color:var(--buy)}
+/* chart */
+#chartBox{height:380px;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+.tfbar{display:flex;gap:6px;margin:10px 0;flex-wrap:wrap}
+.tfbar button{background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:5px 12px;font-size:12px;font-family:var(--mono)}
+.tfbar button.act{color:var(--text);border-color:var(--buy);background:rgba(38,198,162,.1)}
+.mtfstrip{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.mtfchip{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 9px;font-size:11px;font-family:var(--mono)}
+.scenario{white-space:pre-wrap;font-size:13.5px;line-height:1.9;background:var(--panel2);border-left:3px solid var(--buy);border-radius:0 8px 8px 0;padding:12px 14px}
+.reasons li{margin-left:18px;margin-bottom:4px;font-size:13px}
+.reasons li.warn{color:var(--warn)} .reasons li.dng{color:var(--sell)} .reasons li.ok{color:var(--buy)}
+/* alarms */
+.alogitem{display:flex;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line);font-size:13px;align-items:flex-start}
+.alogitem .t{font-family:var(--mono);color:var(--sub);font-size:11px;white-space:nowrap;padding-top:2px}
+.atag{font-weight:700;font-size:12px}
+.toasts{position:fixed;top:60px;right:12px;left:12px;z-index:100;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--info);border-radius:10px;padding:10px 14px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.5);animation:tin .25s ease;max-width:480px;margin-left:auto}
+.toast.buy{border-left-color:var(--buy)} .toast.sell{border-left-color:var(--sell)} .toast.warn{border-left-color:var(--warn)}
+@keyframes tin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){.toast{animation:none}.btn:active{transform:none}}
+/* settings symbol list */
+.symrow{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.symrow .nm{flex:1;min-width:0}
+.symrow .nm small{display:block;color:var(--sub);font-size:11px;font-family:var(--mono)}
+.switch{position:relative;width:40px;height:22px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:var(--panel2);border:1px solid var(--line);border-radius:22px;transition:.15s}
+.slider:before{content:"";position:absolute;width:16px;height:16px;left:2px;top:2px;border-radius:50%;background:var(--sub);transition:.15s}
+.switch input:checked + .slider{background:rgba(38,198,162,.25);border-color:var(--buy)}
+.switch input:checked + .slider:before{transform:translateX(18px);background:var(--buy)}
+.field{margin-bottom:10px}
+.field label{display:block;font-size:12px;color:var(--sub);margin-bottom:4px}
+.kv{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);font-size:13px}
+.kv b{font-family:var(--mono)}
+.warnbox{background:rgba(242,88,111,.1);border:1px solid var(--sell);color:var(--sell);border-radius:10px;padding:10px 12px;font-size:13px;margin-top:8px}
+.okbox{background:rgba(38,198,162,.1);border:1px solid var(--buy);color:var(--buy);border-radius:10px;padding:10px 12px;font-size:13px;margin-top:8px}
+details.sym-add{margin-top:10px}
+details.sym-add summary{cursor:pointer;color:var(--info);font-size:13px}
+.catlabel{font-size:11px;color:var(--sub);letter-spacing:.06em;margin:12px 0 2px;font-weight:700}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div class="logo"><b>Trade</b>Scope <span style="font-size:10px;color:var(--sub);font-family:var(--mono)">v2.0</span></div>
+  <div class="status"><span id="scanDot" class="dot off"></span><span id="scanStat">停止中</span></div>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<!-- ダッシュボード -->
+<section class="scr act" id="scr-dash">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">監視中の銘柄</h3>
+      <div class="row" style="gap:8px">
+        <button class="btn pri" id="btnScanToggle">監視を開始</button>
+        <button class="btn" id="btnScanOnce">今すぐ更新</button>
+      </div>
+    </div>
+    <p class="muted" id="dashHint" style="margin-top:6px"></p>
+    <div class="tblwrap" style="margin-top:8px">
+      <table class="dash">
+        <thead><tr><th>銘柄</th><th>価格</th><th>判定</th><th>方向</th><th>上位足</th><th>データ</th><th>更新</th></tr></thead>
+        <tbody id="dashBody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- チャート -->
+<section class="scr" id="scr-chart">
+  <div class="card">
+    <div class="row">
+      <select id="chartSym" style="flex:1;min-width:180px"></select>
+      <button class="btn pri" id="btnAnalyze">分析する</button>
+    </div>
+    <div class="tfbar" id="tfBar"></div>
+    <div id="chartBox"></div>
+    <div class="row" style="margin-top:8px;justify-content:space-between">
+      <span id="liveBadge" class="muted">ライブ更新：停止中</span>
+      <span id="livePx" class="px" style="font-size:17px;font-weight:700"></span>
+    </div>
+    <p class="muted" id="chartMsg" style="margin-top:4px"></p>
+  </div>
+  <div class="card" id="scoreCard" style="display:none">
+    <div class="row" style="align-items:center;gap:16px">
+      <div class="stamp sc-D" id="bigStamp">D</div>
+      <div style="flex:1;min-width:200px">
+        <div id="scoreTitle" style="font-size:16px;font-weight:700"></div>
+        <div class="muted" id="scoreSub"></div>
+      </div>
+    </div>
+    <div class="mtfstrip" id="mtfStrip"></div>
+    <h3 style="margin-top:12px">現在のシナリオ</h3>
+    <div class="scenario" id="scenarioTxt"></div>
+    <h3 style="margin-top:12px">判断理由</h3>
+    <ul class="reasons" id="reasonList"></ul>
+    <div id="planBox"></div>
+  </div>
+</section>
+
+<!-- アラーム履歴 -->
+<section class="scr" id="scr-alog">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">アラーム履歴</h3>
+      <button class="btn" id="btnClearLog">履歴を消去</button>
+    </div>
+    <div id="alogList"></div>
+  </div>
+</section>
+
+<!-- 資金管理 -->
+<section class="scr" id="scr-money">
+  <div class="card">
+    <h3>資金管理・適正ロット計算</h3>
+    <div class="grid2">
+      <div class="field"><label>口座資金</label><input type="number" id="mmCap" placeholder="500000"></div>
+      <div class="field"><label>資金の通貨</label><select id="mmCur"><option value="JPY">JPY（円）</option><option value="USD">USD（ドル）</option></select></div>
+      <div class="field"><label>1回の許容損失</label><select id="mmRisk"><option value="1">1%（推奨）</option><option value="2">2%</option><option value="3">3%</option></select></div>
+      <div class="field"><label>銘柄</label><select id="mmSym"></select></div>
+      <div class="field"><label>エントリー価格</label><input type="number" id="mmEntry" step="any" placeholder="分析結果から自動入力可"></div>
+      <div class="field"><label>損切り価格</label><input type="number" id="mmSL" step="any"></div>
+    </div>
+    <div class="row">
+      <button class="btn pri" id="btnCalcLot">ロットを計算</button>
+      <button class="btn" id="btnFillFromAnalysis">直近の分析結果から入力</button>
+    </div>
+    <div id="mmResult" style="margin-top:12px"></div>
+  </div>
+</section>
+
+<!-- 設定 -->
+<section class="scr" id="scr-set">
+  <div class="card">
+    <h3>データ取得</h3>
+    <div class="field"><label>データモード</label>
+      <select id="setDataMode">
+        <option value="auto">自動（実データ優先・取れない銘柄はモック）</option>
+        <option value="real">実データのみ（取れない銘柄は「データ未対応」）</option>
+        <option value="mock">全てモックデータ（動作確認用）</option>
+      </select>
+    </div>
+    <div class="field"><label>signal-deskサーバーURL（FX・金のデータ配信元・推奨）</label><input id="setBackend" placeholder="https://signal-desk-xxxx.onrender.com"></div>
+    <div class="field"><label>Twelve Data APIキー（サーバーが使えない時の予備）</label><input type="password" id="setTdKey" placeholder="通常は空欄でOK"></div>
+    <p class="muted">仮想通貨はBinance公開API（キー不要・1秒更新）。FX主要10ペア（ドル円・ユーロ円・ポンド円・ユーロドル等）はGMOコインの為替公開APIに直接接続（キー不要・5秒更新）。金（XAUUSD）は金価格連動トークンPAXGの実勢価格。上記以外のマイナーペアのみ、signal-deskサーバーまたはTwelve Dataキーがあれば取得します。</p>
+    <div class="field" style="margin-top:8px"><label>自動監視の間隔（秒・最短5秒）</label><input type="number" id="setInterval" min="5" step="5"></div>
+    <button class="btn" id="btnDiag">接続診断（モック表示の原因を調べる）</button>
+    <div class="muted" id="diagBox" style="white-space:pre-wrap;margin-top:8px;font-family:var(--mono);font-size:11.5px"></div>
+  </div>
+  <div class="card">
+    <h3>通知</h3>
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn" id="btnNotifPerm">ブラウザ通知を許可する</button>
+      <label class="row" style="gap:6px;font-size:13px"><input type="checkbox" id="setSound" style="width:auto"> 通知音を鳴らす</label>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <label class="row" style="gap:6px;font-size:13px"><input type="checkbox" id="setLine" style="width:auto"> LINEにも通知する（signal-desk経由）</label>
+      <button class="btn" id="btnLineTest">LINEテスト送信</button>
+    </div>
+    <p class="muted">LINE通知はアプリを閉じていても届きません（アラームはこの画面が開いている間に判定されるため）。画面を開いたまま、通知だけLINEで受け取る使い方になります。</p>
+    <div id="alarmToggles"></div>
+  </div>
+  <div class="card">
+    <h3>銘柄管理（追加・削除・有効/無効）</h3>
+    <p class="muted">銘柄はコードに直書きせず、この設定として保存されます。内部シンボルとAPI用シンボルは別管理です（例：内部 XAUUSD ⇔ Twelve Data "XAU/USD"）。</p>
+    <div id="symList"></div>
+    <details class="sym-add">
+      <summary>＋ 銘柄を追加する</summary>
+      <div class="grid2" style="margin-top:8px">
+        <div class="field"><label>内部シンボル（例：EURJPY）</label><input id="addId"></div>
+        <div class="field"><label>表示名（例：ユーロ円）</label><input id="addName"></div>
+        <div class="field"><label>カテゴリ</label><input id="addCat" placeholder="FXクロス円 など"></div>
+        <div class="field"><label>種別</label><select id="addType"><option value="fx">FX</option><option value="metal">金・貴金属</option><option value="crypto">仮想通貨</option><option value="index">指数・CFD</option></select></div>
+        <div class="field"><label>データ元</label><select id="addProv"><option value="twelvedata">Twelve Data</option><option value="binance">Binance</option><option value="none">未対応（将来用）</option></select></div>
+        <div class="field"><label>API用シンボル（例：EUR/JPY, BTCUSDT）</label><input id="addApiSym"></div>
+      </div>
+      <button class="btn pri" id="btnAddSym">追加する</button>
+    </details>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="btnExportSym">銘柄設定を書き出す</button>
+      <button class="btn" id="btnImportSym">読み込む</button>
+      <button class="btn dng" id="btnResetSym">初期状態に戻す</button>
+    </div>
+    <textarea id="symJson" rows="4" style="margin-top:8px;font-family:var(--mono);font-size:11px" placeholder="書き出したJSONがここに表示されます。読み込む場合はここに貼り付けて「読み込む」を押してください。"></textarea>
+  </div>
+  <div class="card">
+    <h3>このアプリについて</h3>
+    <p class="muted">TradeScopeは裁量トレードの分析・警告・シナリオ判断を支援するツールです。自動売買は行いません。表示される判定・価格は参考情報であり、投資判断はご自身の責任で行ってください。モックデータ使用中の価格は実際の相場ではありません。</p>
+  </div>
+</section>
+
+<div class="tabs">
+  <button class="act" data-scr="dash"><span class="ic">◧</span>ダッシュボード</button>
+  <button data-scr="chart"><span class="ic">〽</span>チャート分析</button>
+  <button data-scr="alog"><span class="ic">🔔</span>アラーム</button>
+  <button data-scr="money"><span class="ic">¥</span>資金管理</button>
+  <button data-scr="set"><span class="ic">⚙</span>設定</button>
+</div>
+<script>
+"use strict";
+/* =====================================================
+   TradeScope 裁量トレード支援ターミナル
+   構成: 設定/銘柄マスタ → データ層 → 指標 → 分析エンジン
+        → スコア/シナリオ → アラーム → UI
+   ===================================================== */
+
+/* ---------- 1. 銘柄マスタ（デフォルト・DB代わりにlocalStorage保存） ---------- */
+const TD = "twelvedata", BN = "binance", NONE = "none";
+function S(id, name, cat, type, provider, apiSymbol, opts) {
+  return Object.assign({ id, name, cat, type, provider, apiSymbol, enabled: false, digits: 5 }, opts || {});
+}
+const DEFAULT_SYMBOLS = [
+  // FXメジャー
+  S("USDJPY","ドル円","FXメジャー","fx",TD,"USD/JPY",{enabled:true,digits:3,pip:0.01,quote:"JPY"}),
+  S("EURUSD","ユーロドル","FXメジャー","fx",TD,"EUR/USD",{enabled:true,pip:0.0001,quote:"USD"}),
+  S("GBPUSD","ポンドドル","FXメジャー","fx",TD,"GBP/USD",{pip:0.0001,quote:"USD"}),
+  S("AUDUSD","豪ドルドル","FXメジャー","fx",TD,"AUD/USD",{pip:0.0001,quote:"USD"}),
+  S("NZDUSD","NZドルドル","FXメジャー","fx",TD,"NZD/USD",{pip:0.0001,quote:"USD"}),
+  S("USDCAD","ドルカナダ","FXメジャー","fx",TD,"USD/CAD",{pip:0.0001,quote:"CAD"}),
+  S("USDCHF","ドルフラン","FXメジャー","fx",TD,"USD/CHF",{pip:0.0001,quote:"CHF"}),
+  // FXクロス円
+  S("EURJPY","ユーロ円","FXクロス円","fx",TD,"EUR/JPY",{digits:3,pip:0.01,quote:"JPY"}),
+  S("GBPJPY","ポンド円","FXクロス円","fx",TD,"GBP/JPY",{enabled:true,digits:3,pip:0.01,quote:"JPY"}),
+  S("AUDJPY","豪ドル円","FXクロス円","fx",TD,"AUD/JPY",{digits:3,pip:0.01,quote:"JPY"}),
+  S("NZDJPY","NZドル円","FXクロス円","fx",TD,"NZD/JPY",{digits:3,pip:0.01,quote:"JPY"}),
+  S("CADJPY","カナダ円","FXクロス円","fx",TD,"CAD/JPY",{digits:3,pip:0.01,quote:"JPY"}),
+  S("CHFJPY","フラン円","FXクロス円","fx",TD,"CHF/JPY",{digits:3,pip:0.01,quote:"JPY"}),
+  // FXその他
+  S("EURGBP","ユーロポンド","FXその他","fx",TD,"EUR/GBP",{pip:0.0001,quote:"GBP"}),
+  S("EURAUD","ユーロ豪ドル","FXその他","fx",TD,"EUR/AUD",{pip:0.0001,quote:"AUD"}),
+  S("GBPAUD","ポンド豪ドル","FXその他","fx",TD,"GBP/AUD",{pip:0.0001,quote:"AUD"}),
+  S("GBPCAD","ポンドカナダ","FXその他","fx",TD,"GBP/CAD",{pip:0.0001,quote:"CAD"}),
+  S("AUDNZD","豪ドルNZ","FXその他","fx",TD,"AUD/NZD",{pip:0.0001,quote:"NZD"}),
+  // 金・貴金属
+  S("XAUUSD","ゴールド","金・貴金属","metal",BN,"PAXGUSDT",{enabled:true,digits:2,pip:0.1,quote:"USD",contract:100}),
+  S("XAGUSD","シルバー","金・貴金属","metal",TD,"XAG/USD",{digits:3,pip:0.01,quote:"USD",contract:5000}),
+  S("XAUEUR","ゴールド(ユーロ建)","金・貴金属","metal",TD,"XAU/EUR",{digits:2,pip:0.1,quote:"EUR",contract:100}),
+  S("XPTUSD","プラチナ","金・貴金属","metal",TD,"XPT/USD",{digits:2,pip:0.1,quote:"USD",contract:100}),
+  S("XPDUSD","パラジウム","金・貴金属","metal",TD,"XPD/USD",{digits:2,pip:0.1,quote:"USD",contract:100}),
+  // 仮想通貨メジャー
+  S("BTCUSDT","ビットコイン","仮想通貨メジャー","crypto",BN,"BTCUSDT",{enabled:true,digits:1}),
+  S("ETHUSDT","イーサリアム","仮想通貨メジャー","crypto",BN,"ETHUSDT",{enabled:true,digits:2}),
+  S("SOLUSDT","ソラナ","仮想通貨メジャー","crypto",BN,"SOLUSDT",{enabled:true,digits:2}),
+  S("BNBUSDT","BNB","仮想通貨メジャー","crypto",BN,"BNBUSDT",{digits:2}),
+  S("XRPUSDT","リップル","仮想通貨メジャー","crypto",BN,"XRPUSDT",{digits:4}),
+  S("ADAUSDT","カルダノ","仮想通貨メジャー","crypto",BN,"ADAUSDT",{digits:4}),
+  S("DOGEUSDT","ドージコイン","仮想通貨メジャー","crypto",BN,"DOGEUSDT",{digits:5}),
+  S("AVAXUSDT","アバランチ","仮想通貨メジャー","crypto",BN,"AVAXUSDT",{digits:2}),
+  S("LINKUSDT","チェーンリンク","仮想通貨メジャー","crypto",BN,"LINKUSDT",{digits:2}),
+  S("DOTUSDT","ポルカドット","仮想通貨メジャー","crypto",BN,"DOTUSDT",{digits:3}),
+  // 仮想通貨その他
+  S("MATICUSDT","ポリゴン","仮想通貨その他","crypto",BN,"MATICUSDT",{digits:4}),
+  S("TRXUSDT","トロン","仮想通貨その他","crypto",BN,"TRXUSDT",{digits:5}),
+  S("LTCUSDT","ライトコイン","仮想通貨その他","crypto",BN,"LTCUSDT",{digits:2}),
+  S("BCHUSDT","ビットコインキャッシュ","仮想通貨その他","crypto",BN,"BCHUSDT",{digits:1}),
+  S("ATOMUSDT","コスモス","仮想通貨その他","crypto",BN,"ATOMUSDT",{digits:3}),
+  S("NEARUSDT","ニア","仮想通貨その他","crypto",BN,"NEARUSDT",{digits:3}),
+  S("APTUSDT","アプトス","仮想通貨その他","crypto",BN,"APTUSDT",{digits:3}),
+  S("OPUSDT","オプティミズム","仮想通貨その他","crypto",BN,"OPUSDT",{digits:4}),
+  S("ARBUSDT","アービトラム","仮想通貨その他","crypto",BN,"ARBUSDT",{digits:4}),
+  S("SUIUSDT","スイ","仮想通貨その他","crypto",BN,"SUIUSDT",{digits:4}),
+  S("INJUSDT","インジェクティブ","仮想通貨その他","crypto",BN,"INJUSDT",{digits:3}),
+  S("PEPEUSDT","ペペ","仮想通貨その他","crypto",BN,"PEPEUSDT",{digits:8}),
+  // 指数・CFD（将来対応: providerをtwelvedata等に変えれば取得可能）
+  S("US30","NYダウ","指数・CFD","index",NONE,"US30",{digits:1}),
+  S("US100","ナスダック100","指数・CFD","index",NONE,"US100",{digits:1}),
+  S("US500","S&P500","指数・CFD","index",NONE,"US500",{digits:1}),
+  S("JP225","日経225","指数・CFD","index",NONE,"JP225",{digits:0}),
+  S("GER40","独DAX","指数・CFD","index",NONE,"GER40",{digits:1}),
+  S("UK100","英FTSE","指数・CFD","index",NONE,"UK100",{digits:1}),
+  S("WTI","WTI原油","指数・CFD","index",NONE,"WTI",{digits:2}),
+  S("BRENT","ブレント原油","指数・CFD","index",NONE,"BRENT",{digits:2}),
+];
+// 別名 → 内部シンボル（XAUUSD / GOLD / XAU/USD を同じ金として扱う）
+const SYMBOL_ALIASES = {
+  "GOLD":"XAUUSD","XAU/USD":"XAUUSD","XAUUSD.":"XAUUSD","GOLDUSD":"XAUUSD",
+  "SILVER":"XAGUSD","XAG/USD":"XAGUSD",
+  "USD/JPY":"USDJPY","EUR/USD":"EURUSD","GBP/JPY":"GBPJPY","GBP/USD":"GBPUSD",
+  "BTC":"BTCUSDT","BTCUSD":"BTCUSDT","ETH":"ETHUSDT","ETHUSD":"ETHUSDT",
+  "NAS100":"US100","NASDAQ":"US100","SPX500":"US500","DOW":"US30","NIKKEI":"JP225","DAX":"GER40",
+};
+// サーバー接続先: このページ自体がsignal-deskから配信されていれば自分自身を使う（CORS完全回避）
+function backendBase(){
+  try{
+    if(location && /onrender\.com$/.test(location.hostname)) return location.origin;
+  }catch(e){}
+  return (SETTINGS.backendUrl || "").trim().replace(/\/+$/, "");
+}
+function normalizeSymbol(raw){
+  if(!raw) return null;
+  const k = String(raw).trim().toUpperCase();
+  return SYMBOL_ALIASES[k] || k;
+}
+
+/* ---------- 2. 保存（localStorage） ---------- */
+const LS = { SYM:"ts_symbols_v1", SET:"ts_settings_v1", LOG:"ts_alarmlog_v1" };
+function loadJSON(key, fallback){ try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }catch(e){ return fallback; } }
+function saveJSON(key, obj){ try{ localStorage.setItem(key, JSON.stringify(obj)); }catch(e){} }
+
+let SYMBOLS = loadJSON(LS.SYM, null) || JSON.parse(JSON.stringify(DEFAULT_SYMBOLS));
+// 旧バージョンからの自動移行: 金はPAXG(Binance)直結に切替
+{ const x = SYMBOLS.find(s=>s.id==="XAUUSD");
+  if(x && x.provider !== "binance"){ x.provider = "binance"; x.apiSymbol = "PAXGUSDT"; } }
+const ALARM_TYPES = [
+  ["entry","エントリー候補発生", true],
+  ["buyNear","買いチャンス接近", true],
+  ["sellNear","売りチャンス接近", true],
+  ["slNear","損切り候補ライン接近", true],
+  ["tpNear","利確候補ライン接近", true],
+  ["spike","急変動発生", true],
+  ["fakeout","だましブレイク注意", true],
+  ["align","上位足と短期足の方向一致", false],
+  ["conflict","上位足と短期足が逆行（危険）", true],
+  ["notrade","ノートレード推奨", false],
+];
+let SETTINGS = Object.assign({
+  dataMode:"auto", tdKey:"", backendUrl:"https://signal-desk-fok6.onrender.com", scanSec:90, sound:true, lineNotify:false,
+  alarms: Object.fromEntries(ALARM_TYPES.map(a=>[a[0], a[2]])),
+  cooldownMin: 20,
+  mmCap: 500000, mmCur:"JPY", mmRisk: 1,
+}, loadJSON(LS.SET, {}));
+if(!SETTINGS.backendUrl || !String(SETTINGS.backendUrl).trim()){
+  SETTINGS.backendUrl = "https://signal-desk-fok6.onrender.com"; // 自己修復
+}
+let ALARM_LOG = loadJSON(LS.LOG, []);
+function saveAll(){ saveJSON(LS.SYM, SYMBOLS); saveJSON(LS.SET, SETTINGS); saveJSON(LS.LOG, ALARM_LOG.slice(0,300)); }
+function getSym(id){ return SYMBOLS.find(s=>s.id===normalizeSymbol(id)); }
+
+/* ---------- 3. データ層（プロバイダ切替式・キャッシュ・レート制御） ---------- */
+const TF_LIST = ["1m","5m","15m","1h","4h","1d"];
+const TF_LABEL = {"1m":"1分","5m":"5分","15m":"15分","1h":"1時間","4h":"4時間","1d":"日足"};
+const TF_MS = {"1m":60e3,"5m":300e3,"15m":900e3,"1h":3600e3,"4h":14400e3,"1d":86400e3};
+const CACHE_TTL = {"1m":20e3,"5m":60e3,"15m":180e3,"1h":420e3,"4h":900e3,"1d":1800e3};
+const candleCache = new Map(); // key: symId|tf -> {t, candles, source}
+const lastFetchErrors = new Map(); // symId -> 直近の取得失敗理由（診断用）
+
+// Twelve Dataレート制御（無料枠 約8req/分）: 直近60秒のリクエスト数を数えて待つ
+const tdTimes = [];
+async function tdThrottle(){
+  for(;;){
+    const now = Date.now();
+    while(tdTimes.length && now - tdTimes[0] > 61000) tdTimes.shift();
+    if(tdTimes.length < 7){ tdTimes.push(now); return; }
+    await new Promise(r=>setTimeout(r, 61000 - (now - tdTimes[0]) + 200));
+  }
+}
+
+// GMOコイン為替(キー不要のPublic API)対応ペア: 内部シンボル→GMOシンボル
+const GMO_MAP = {
+  USDJPY:"USD_JPY", EURJPY:"EUR_JPY", GBPJPY:"GBP_JPY", AUDJPY:"AUD_JPY",
+  NZDJPY:"NZD_JPY", CADJPY:"CAD_JPY", CHFJPY:"CHF_JPY",
+  EURUSD:"EUR_USD", GBPUSD:"GBP_USD", AUDUSD:"AUD_USD",
+};
+const gmoPastCache = new Map(); // 確定した過去日のデータは変わらないので保持
+async function gmoFetchChunk(gsym, iv, dateStr, isCurrent){
+  const key = gsym + "|" + iv + "|" + dateStr;
+  if(!isCurrent && gmoPastCache.has(key)) return gmoPastCache.get(key);
+  const r = await fetch(`https://forex-api.coin.z.com/public/v1/klines?symbol=${gsym}&priceType=BID&interval=${iv}&date=${dateStr}`);
+  if(!r.ok) throw new Error("GMO HTTP " + r.status);
+  const j = await r.json();
+  const data = (j && j.data) ? j.data : [];
+  if(!isCurrent) gmoPastCache.set(key, data);
+  return data;
+}
+let gmoTicker = { t: 0, data: [] };
+async function gmoTickerAll(){
+  if(Date.now() - gmoTicker.t > 2500){
+    const r = await fetch("https://forex-api.coin.z.com/public/v1/ticker");
+    if(!r.ok) throw new Error("GMO HTTP " + r.status);
+    const j = await r.json();
+    gmoTicker = { t: Date.now(), data: (j && j.data) || [] };
+  }
+  return gmoTicker.data;
+}
+async function gmoPrice(symId){
+  const gsym = GMO_MAP[symId];
+  if(!gsym) throw new Error("GMO未対応ペア");
+  const rows = await gmoTickerAll();
+  const row = rows.find(x=>x.symbol === gsym);
+  if(!row) throw new Error("GMO ticker: " + gsym + " 無し");
+  const bid = +row.bid, ask = +row.ask;
+  return (bid && ask) ? (bid + ask) / 2 : (bid || ask);
+}
+function jstNow(){ return new Date(Date.now() + 9 * 3600e3); }
+function jstYmd(d){ return d.getUTCFullYear() + String(d.getUTCMonth()+1).padStart(2,"0") + String(d.getUTCDate()).padStart(2,"0"); }
+
+const Providers = {
+  gmo: {
+    // GMOコイン為替Public API直結（FX主要10ペア・キー不要）
+    async fetchKlines(sym, tf, limit){
+      const gsym = GMO_MAP[sym.id];
+      if(!gsym) throw new Error("GMO未対応ペア");
+      const ivMap = {"1m":"1min","5m":"5min","15m":"15min","1h":"1hour","4h":"4hour","1d":"1day"};
+      const iv = ivMap[tf];
+      let rows = [];
+      if(tf === "4h" || tf === "1d"){
+        const y = jstNow().getUTCFullYear();
+        for(const yy of [y-1, y]){
+          try{ rows = rows.concat(await gmoFetchChunk(gsym, iv, String(yy), yy === y)); }
+          catch(e){ if(yy === y) throw e; }
+        }
+      } else {
+        const chunks = []; let total = 0;
+        let d = jstNow();
+        for(let i = 0; i < 14 && total < limit + 5; i++){
+          const data = await gmoFetchChunk(gsym, iv, jstYmd(d), i === 0);
+          chunks.push(data); total += data.length;
+          d = new Date(d.getTime() - 86400e3);
+        }
+        chunks.reverse().forEach(c=>{ rows = rows.concat(c); });
+      }
+      const candles = rows.map(x=>({ time: Math.floor(+x.openTime / 1000),
+        open:+x.open, high:+x.high, low:+x.low, close:+x.close, volume: 0 }))
+        .sort((a,b)=>a.time-b.time);
+      if(!candles.length) throw new Error("GMOデータ空（市場休場の可能性）");
+      return candles.slice(-limit);
+    }
+  },
+  backend: {
+    // signal-deskサーバー経由（FX=GMOコイン / 金=PAXG / その他=サーバー側Twelve Data）
+    async fetchKlines(sym, tf, limit){
+      const base = backendBase();
+      if(!base) throw new Error("NO_BACKEND");
+      const res = await fetch(`${base}/api/ts/klines?symbol=${sym.id}&tf=${tf}&limit=${limit}`);
+      const j = await res.json().catch(()=>({}));
+      if(!res.ok || !j.candles || !j.candles.length) throw new Error(j.error || ("backend HTTP " + res.status));
+      return j.candles;
+    }
+  },
+  binance: {
+    async fetchKlines(sym, tf, limit){
+      const url = `https://api.binance.com/api/v3/klines?symbol=${sym.apiSymbol}&interval=${tf}&limit=${limit}`;
+      const res = await fetch(url);
+      if(!res.ok) throw new Error("Binance HTTP " + res.status);
+      const j = await res.json();
+      return j.map(k=>({ time: Math.floor(k[0]/1000), open:+k[1], high:+k[2], low:+k[3], close:+k[4], volume:+k[5] }));
+    }
+  },
+  twelvedata: {
+    async fetchKlines(sym, tf, limit){
+      if(!SETTINGS.tdKey) throw new Error("NO_KEY");
+      const ivMap = {"1m":"1min","5m":"5min","15m":"15min","1h":"1h","4h":"4h","1d":"1day"};
+      await tdThrottle();
+      const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym.apiSymbol)}&interval=${ivMap[tf]}&outputsize=${limit}&apikey=${SETTINGS.tdKey}`;
+      const res = await fetch(url);
+      const j = await res.json();
+      if(j.status === "error" || !j.values) throw new Error("TwelveData: " + (j.message || "no data"));
+      return j.values.map(v=>({ time: Math.floor(new Date(v.datetime.replace(" ","T")+"Z").getTime()/1000),
+        open:+v.open, high:+v.high, low:+v.low, close:+v.close, volume:+(v.volume||0) })).reverse();
+    }
+  },
+  mock: {
+    async fetchKlines(sym, tf, limit){
+      // 銘柄IDから決定的シードを作り、現実的な値幅のランダムウォークを生成
+      let seed = 0; for(const c of sym.id) seed = (seed*31 + c.charCodeAt(0)) >>> 0;
+      const base = { USDJPY:157.2, EURUSD:1.083, GBPUSD:1.27, GBPJPY:199.5, XAUUSD:2650, XAGUSD:31.2,
+        BTCUSDT:97000, ETHUSDT:3400, SOLUSDT:190 }[sym.id] || (50 + (seed % 400));
+      const rnd = (()=>{ let s = seed || 1; return ()=>{ s = (s*1664525 + 1013904223) >>> 0; return s/4294967296; }; })();
+      const vol = base * 0.0012 * Math.sqrt(TF_MS[tf]/TF_MS["5m"]);
+      const now = Math.floor(Date.now()/1000), step = TF_MS[tf]/1000;
+      const out = []; let px = base, trendPhase = rnd()*6.28;
+      for(let i=limit-1;i>=0;i--){
+        const drift = Math.sin(trendPhase + i/28) * vol * 0.45;
+        const o = px, move = (rnd()-0.5)*2*vol + drift;
+        const c2 = o + move;
+        const h = Math.max(o,c2) + rnd()*vol*0.6, l = Math.min(o,c2) - rnd()*vol*0.6;
+        out.push({ time: now - i*step - (now % step), open:o, high:h, low:l, close:c2, volume: 100 + rnd()*900 });
+        px = c2;
+      }
+      return out;
+    }
+  }
+};
+
+// 銘柄+時間足のローソク足を取得（キャッシュ→実データ→フォールバック）
+async function fetchCandles(sym, tf, limit = 300){
+  const key = sym.id + "|" + tf;
+  const c = candleCache.get(key);
+  if(c && Date.now() - c.t < CACHE_TTL[tf]) return c;
+  let candles = null, source = "live", err = null;
+  if(SETTINGS.dataMode === "mock" || sym.provider === NONE){
+    if(sym.provider === NONE && SETTINGS.dataMode !== "mock"){ throw new Error("UNSUPPORTED"); }
+    candles = await Providers.mock.fetchKlines(sym, tf, limit); source = "mock";
+  } else {
+    const order = sym.provider === TD
+      ? [ ...(GMO_MAP[sym.id] ? ["gmo"] : []),
+          ...(SETTINGS.backendUrl ? ["backend"] : []),
+          ...(SETTINGS.tdKey ? ["twelvedata"] : []) ]
+      : sym.provider === BN
+      ? [ "binance", ...(SETTINGS.backendUrl ? ["backend"] : []) ] // Binance直結不可でもサーバー中継で取得
+      : [sym.provider];
+    if(!order.length) err = new Error("NO_KEY");
+    const errs = [];
+    for(const p of order){
+      try { candles = await Providers[p].fetchKlines(sym, tf, limit); break; }
+      catch(e){ err = e; errs.push(p + ": " + (e && e.message || e)); }
+    }
+    if(errs.length) lastFetchErrors.set(sym.id, errs.join(" ／ "));
+    if(candles) lastFetchErrors.delete(sym.id);
+    if(!candles){
+      if(SETTINGS.dataMode === "auto"){ candles = await Providers.mock.fetchKlines(sym, tf, limit); source = "mock"; }
+      else throw (err || new Error("FETCH_FAIL"));
+    }
+  }
+  const entry = { t: Date.now(), candles, source };
+  candleCache.set(key, entry);
+  return entry;
+}
+
+/* ---------- 4. テクニカル指標 ---------- */
+function emaArr(vals, p){
+  const k = 2/(p+1), out = new Array(vals.length).fill(null);
+  let e = null;
+  for(let i=0;i<vals.length;i++){
+    e = e === null ? vals[i] : vals[i]*k + e*(1-k);
+    if(i >= p-1) out[i] = e;
+  }
+  return out;
+}
+function rsiArr(closes, p = 14){
+  const out = new Array(closes.length).fill(null);
+  let g = 0, l = 0;
+  for(let i=1;i<closes.length;i++){
+    const d = closes[i]-closes[i-1];
+    const up = Math.max(d,0), dn = Math.max(-d,0);
+    if(i <= p){ g += up; l += dn; if(i === p){ g/=p; l/=p; out[i] = 100 - 100/(1 + (l===0?100:g/l)); } }
+    else { g = (g*(p-1)+up)/p; l = (l*(p-1)+dn)/p; out[i] = 100 - 100/(1 + (l===0?100:g/l)); }
+  }
+  return out;
+}
+function macdArr(closes){
+  const e12 = emaArr(closes,12), e26 = emaArr(closes,26);
+  const line = closes.map((_,i)=> e12[i]!==null && e26[i]!==null ? e12[i]-e26[i] : null);
+  const valid = line.map(v=>v===null?0:v);
+  const sig = emaArr(valid,9).map((v,i)=> line[i]===null?null:v);
+  return { line, sig, hist: line.map((v,i)=> v===null||sig[i]===null?null:v-sig[i]) };
+}
+function atrArr(cs, p = 14){
+  const out = new Array(cs.length).fill(null); let a = null;
+  for(let i=1;i<cs.length;i++){
+    const tr = Math.max(cs[i].high-cs[i].low, Math.abs(cs[i].high-cs[i-1].close), Math.abs(cs[i].low-cs[i-1].close));
+    a = a===null ? tr : (a*(p-1)+tr)/p;
+    if(i>=p) out[i]=a;
+  }
+  return out;
+}
+// スイング高値・安値（左右2本のフラクタル）
+function swings(cs, look = 2){
+  const highs = [], lows = [];
+  for(let i=look;i<cs.length-look;i++){
+    let hi = true, lo = true;
+    for(let j=1;j<=look;j++){
+      if(cs[i].high < cs[i-j].high || cs[i].high < cs[i+j].high) hi = false;
+      if(cs[i].low > cs[i-j].low || cs[i].low > cs[i+j].low) lo = false;
+    }
+    if(hi) highs.push({ i, price: cs[i].high, time: cs[i].time });
+    if(lo) lows.push({ i, price: cs[i].low, time: cs[i].time });
+  }
+  return { highs, lows };
+}
+// スイング点をクラスタ化してサポレジ帯を作る（近い価格をまとめ、タッチ回数で強度）
+function srLevels(sw, atr, maxLevels = 6){
+  const pts = [...sw.highs.map(h=>({p:h.price,k:"R"})), ...sw.lows.map(l=>({p:l.price,k:"S"}))].sort((a,b)=>a.p-b.p);
+  const tol = (atr||0) * 0.6 || 1e-9;
+  const clusters = [];
+  for(const pt of pts){
+    const c = clusters.find(c=> Math.abs(c.p - pt.p) <= tol);
+    if(c){ c.p = (c.p * c.n + pt.p)/(c.n+1); c.n++; }
+    else clusters.push({ p: pt.p, n: 1 });
+  }
+  return clusters.filter(c=>c.n>=2).sort((a,b)=>b.n-a.n).slice(0,maxLevels).sort((a,b)=>a.p-b.p);
+}
+/* ---------- 5. 時間足ごとの分析 ---------- */
+function analyzeTF(candles){
+  const closes = candles.map(c=>c.close);
+  const n = candles.length, last = candles[n-1], prev = candles[n-2];
+  const e9 = emaArr(closes,9), e21 = emaArr(closes,21), e200 = emaArr(closes,200);
+  const rsi = rsiArr(closes), macd = macdArr(closes), atr = atrArr(candles);
+  const sw = swings(candles);
+  const a = atr[n-1] || (last.high - last.low) || 1e-9;
+  const sr = srLevels(sw, a);
+  // トレンド判定: EMA整列 + 傾き + 直近構造
+  const up = e9[n-1] > e21[n-1] && closes[n-1] > e21[n-1] && (e200[n-1]===null || closes[n-1] > e200[n-1]);
+  const dn = e9[n-1] < e21[n-1] && closes[n-1] < e21[n-1] && (e200[n-1]===null || closes[n-1] < e200[n-1]);
+  const slope21 = e21[n-1] !== null && e21[n-6] !== null ? (e21[n-1]-e21[n-6]) / a : 0;
+  let trend = "flat";
+  if(up && slope21 > 0.15) trend = "up";
+  else if(dn && slope21 < -0.15) trend = "down";
+  // レンジ判定: 直近40本の値幅がATRの4倍以内に収まっている
+  const win = candles.slice(-40);
+  const wHi = Math.max(...win.map(c=>c.high)), wLo = Math.min(...win.map(c=>c.low));
+  const isRange = trend === "flat" && (wHi - wLo) < a * 5;
+  // 直近高値・安値
+  const lastHigh = sw.highs.length ? sw.highs[sw.highs.length-1].price : wHi;
+  const lastLow = sw.lows.length ? sw.lows[sw.lows.length-1].price : wLo;
+  // ボラ急増: 直近3本の平均レンジが平常ATRの2.2倍超
+  const r3 = candles.slice(-3).reduce((s,c)=>s+(c.high-c.low),0)/3;
+  const volSpike = r3 > a * 2.2;
+  // だましブレイク: 直近5本以内に高値/安値を抜けたのに実体が戻された
+  let fakeBreak = null;
+  const hs = sw.highs.filter(h=>h.i < n-1), ls = sw.lows.filter(l=>l.i < n-1);
+  const refH = hs.length>1 ? hs[hs.length-2].price : null;
+  const refL = ls.length>1 ? ls[ls.length-2].price : null;
+  for(let i = Math.max(1, n-5); i < n; i++){
+    const c = candles[i];
+    if(refH && c.high > refH && c.close < refH && (refH - c.close) > a*0.3) fakeBreak = "up";
+    if(refL && c.low < refL && c.close > refL && (c.close - refL) > a*0.3) fakeBreak = "down";
+  }
+  // 押し目/戻り: EMA21付近(0.6ATR以内)への接近 + 反発の実体
+  const distE21 = e21[n-1] !== null ? (closes[n-1] - e21[n-1]) / a : 99;
+  const bullBar = last.close > last.open && (last.close-last.open) > (last.high-last.low)*0.45;
+  const bearBar = last.close < last.open && (last.open-last.close) > (last.high-last.low)*0.45;
+  const pullbackBuy = trend === "up" && Math.abs(distE21) < 0.7 && rsi[n-1] > 32 && rsi[n-1] < 58 && bullBar;
+  const pullbackSell = trend === "down" && Math.abs(distE21) < 0.7 && rsi[n-1] > 42 && rsi[n-1] < 68 && bearBar;
+  // 損切りが溜まりやすい場所 = 直近安値/高値のすぐ外側（流動性ゾーン）
+  const liqBelow = lastLow - a*0.2, liqAbove = lastHigh + a*0.2;
+  // 急騰急落後の飛び乗り危険: 直近5本で3ATR以上動いた
+  const move5 = closes[n-1] - closes[Math.max(0,n-6)];
+  const chase = Math.abs(move5) > a * 3;
+  return { candles, closes, last, prev, e9, e21, e200, rsi, macd, atr: a, sr, sw,
+    trend, isRange, rangeHi: wHi, rangeLo: wLo, lastHigh, lastLow,
+    volSpike, fakeBreak, pullbackBuy, pullbackSell, liqBelow, liqAbove,
+    chase, chaseDir: move5 > 0 ? "up" : "down",
+    rsiNow: rsi[n-1], macdHist: macd.hist[n-1] };
+}
+
+/* ---------- 6. 時間帯・セッション判定（JST基準） ---------- */
+function sessionInfo(){
+  const now = new Date();
+  const jst = new Date(now.toLocaleString("en-US",{timeZone:"Asia/Tokyo"}));
+  const h = jst.getHours(), m = jst.getMinutes(), t = h*60+m, dow = jst.getDay();
+  let name = "閑散時間帯", quality = 0;
+  if(t >= 9*60 && t < 11*60){ name = "東京時間（仲値前後）"; quality = 1; }
+  else if(t >= 15*60+30 && t < 19*60){ name = "ロンドン時間 序盤"; quality = 2; }
+  else if(t >= 21*60 && t < 24*60){ name = "NY時間（最も動く時間帯）"; quality = 2; }
+  else if(t >= 0 && t < 2*60){ name = "NY時間 後半"; quality = 1; }
+  else if(t >= 11*60 && t < 15*60){ name = "東京昼〜欧州前（値動き縮小）"; quality = 0; }
+  else { name = "早朝・閑散（スプレッド拡大注意）"; quality = -1; }
+  // 米指標が多い時間帯（21:15〜21:45、23:00前後）は警戒。曜日不問の簡易判定
+  const newsRisk = (t >= 21*60+15 && t <= 21*60+50) || (t >= 22*60+55 && t <= 23*60+10);
+  const weekend = dow === 0 || dow === 6;
+  return { name, quality, newsRisk, weekend, jstStr: `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")} JST` };
+}
+
+/* ---------- 7. トップトレーダー思考の総合判定エンジン ---------- */
+async function analyzeSymbol(sym, opts){
+  opts = opts || {};
+  const tfData = {}, sources = new Set();
+  for(const tf of TF_LIST){
+    const limit = tf === "1d" ? 260 : 300;
+    const entry = await fetchCandles(sym, tf, limit);
+    tfData[tf] = analyzeTF(entry.candles);
+    sources.add(entry.source);
+  }
+  const d1 = tfData["1d"], h4 = tfData["4h"], h1 = tfData["1h"],
+        m15 = tfData["15m"], m5 = tfData["5m"], m1 = tfData["1m"];
+  const price = m1.last.close;
+  const sess = sessionInfo();
+  const reasons = [];   // {txt, kind: ok|warn|dng|info}
+  const R = (txt,kind)=>reasons.push({txt,kind:kind||"info"});
+
+  // --- 上位足の方向 ---
+  const htfVotes = [d1.trend, h4.trend];
+  const higher = htfVotes[0] === htfVotes[1] ? htfVotes[0] : (h4.trend !== "flat" ? h4.trend : d1.trend);
+  const mid = h1.trend !== "flat" ? h1.trend : m15.trend;
+  const lower = m5.trend;
+  const tj = t => t==="up"?"上昇":t==="down"?"下降":"横ばい";
+  R(`日足:${tj(d1.trend)} / 4時間足:${tj(h4.trend)} / 1時間足:${tj(h1.trend)}`, "info");
+
+  let dir = "none", score = 0;
+
+  if(higher === "up" || higher === "down"){
+    dir = higher === "up" ? "buy" : "sell";
+    score += 2;
+    R(`上位足（日足・4時間足）は${tj(higher)}方向で一致度が高い`, "ok");
+    if(mid === higher){ score += 2; R(`1時間足も同方向。中期の流れに逆らわないエントリーが可能`, "ok"); }
+    else if(mid !== "flat"){ score -= 1; R(`1時間足が上位足と逆行中。押し・戻りの途中の可能性`, "warn"); }
+    // 押し目・戻り確認（15分・5分）
+    const pb = higher === "up" ? (m15.pullbackBuy || m5.pullbackBuy) : (m15.pullbackSell || m5.pullbackSell);
+    if(pb){ score += 2; R(higher==="up" ? "短期足でEMA21付近への押し目と反発の初動を確認" : "短期足でEMA21付近への戻りと反落の初動を確認", "ok"); }
+    else R(higher==="up" ? "まだ明確な押し目反発が出ていない。引き付けたい" : "まだ明確な戻り反落が出ていない。引き付けたい", "warn");
+    // 短期逆行
+    if(lower !== "flat" && lower !== higher){ score -= 2; R("5分足が上位足と逆方向に走っている。逆行中の飛び乗りは危険", "dng"); }
+    else if(lower === higher){ score += 1; R("5分足も同方向。全時間足の方向が揃っている", "ok"); }
+  } else if(h1.isRange || h4.isRange){
+    // レンジ相場: 上限・下限の逆張り候補のみ
+    const rHi = h1.rangeHi, rLo = h1.rangeLo, band = rHi - rLo;
+    R(`1時間足はレンジ（上限${fmtP(sym,rHi)} / 下限${fmtP(sym,rLo)}）`, "info");
+    if(band > 0){
+      const pos = (price - rLo) / band;
+      if(pos < 0.15 && m5.rsiNow < 38){ dir = "buy"; score = 3; R("レンジ下限付近＋短期RSI低下。反発狙いの逆張り買い候補", "ok"); }
+      else if(pos > 0.85 && m5.rsiNow > 62){ dir = "sell"; score = 3; R("レンジ上限付近＋短期RSI上昇。反落狙いの逆張り売り候補", "ok"); }
+      else R("レンジ中央付近。優位性がないため待ち推奨", "warn");
+    }
+  } else {
+    R("上位足に明確な方向がない。方向感が出るまでノートレード推奨", "warn");
+  }
+
+  // --- サポレジ・直近高値安値との位置関係 ---
+  const srAll = [...h4.sr.map(s=>({p:s.p,tf:"4h",n:s.n})), ...h1.sr.map(s=>({p:s.p,tf:"1h",n:s.n}))];
+  const above = srAll.filter(s=>s.p > price).sort((a,b)=>a.p-b.p);
+  const below = srAll.filter(s=>s.p < price).sort((a,b)=>b.p-a.p);
+  const nearRes = above[0] || null, nearSup = below[0] || null;
+  const aH1 = h1.atr;
+  if(dir === "buy" && nearRes && (nearRes.p - price) < aH1 * 1.2){
+    score -= 2; R(`直上 ${fmtP(sym,nearRes.p)} に抵抗帯。抜けるまで買いは伸びにくい`, "warn");
+  }
+  if(dir === "sell" && nearSup && (price - nearSup.p) < aH1 * 1.2){
+    score -= 2; R(`直下 ${fmtP(sym,nearSup.p)} に支持帯。抜けるまで売りは伸びにくい`, "warn");
+  }
+
+  // --- だまし・流動性狩り・飛び乗り ---
+  const fake = m15.fakeBreak || m5.fakeBreak;
+  if(fake){ score -= 2; R(fake === "up" ? "直近高値ブレイク後に押し戻された「だまし上抜け」を検出" : "直近安値割れ後に戻された「だまし下抜け」（流動性狩りの可能性）", "dng"); }
+  if(m5.chase || m15.chase){
+    score -= 2;
+    R(`直近で急${(m5.chase?m5.chaseDir:m15.chaseDir)==="up"?"騰":"落"}。ここからの飛び乗りは高値掴み/安値掴みの危険`, "dng");
+  }
+  if(m5.volSpike){ score -= 1; R("短期足でボラティリティ急増。値が飛びやすく損切りが機能しにくい", "warn"); }
+
+  // --- 時間帯 ---
+  R(`現在 ${sess.jstStr}：${sess.name}`, sess.quality >= 1 ? "ok" : "warn");
+  if(sess.quality >= 2) score += 1;
+  else if(sess.quality <= 0 && sym.type !== "crypto") score -= 1;
+  if(sess.newsRisk){ score -= 2; R("経済指標の発表が集中しやすい時間帯。発表前後は値が飛ぶため新規エントリーは危険", "dng"); }
+  if(sess.weekend && sym.type !== "crypto"){ score = -9; dir = "none"; R("週末のためFX・金は市場休場", "warn"); }
+
+  // --- エントリープラン（RR計算） ---
+  let plan = null;
+  if(dir === "buy" || dir === "sell"){
+    const aE = m15.atr;
+    let entry, sl, tp1, tp2;
+    if(dir === "buy"){
+      // 引き付け位置（EMA21や支持帯）。必ず現在値以下にクランプする
+      const pullTo = Math.max(m15.e21[m15.closes.length-1] || price - aE, nearSup ? nearSup.p : price - aE);
+      entry = (m15.pullbackBuy || m5.pullbackBuy) ? price : Math.min(price, pullTo);
+      sl = Math.min(m15.lastLow, m5.lastLow) - aE * 0.3;
+      if(sl >= entry - aE * 0.4) sl = entry - aE * 1.2;
+      tp1 = nearRes && nearRes.p > entry + aE * 0.5 ? nearRes.p : entry + aE * 2;
+      tp2 = above[1] && above[1].p > tp1 ? above[1].p : tp1 + aE * 1.5;
+    } else {
+      const pullTo = Math.min(m15.e21[m15.closes.length-1] || price + aE, nearRes ? nearRes.p : price + aE);
+      entry = (m15.pullbackSell || m5.pullbackSell) ? price : Math.max(price, pullTo);
+      sl = Math.max(m15.lastHigh, m5.lastHigh) + aE * 0.3;
+      if(sl <= entry + aE * 0.4) sl = entry + aE * 1.2;
+      tp1 = nearSup && nearSup.p < entry - aE * 0.5 ? nearSup.p : entry - aE * 2;
+      tp2 = below[1] && below[1].p < tp1 ? below[1].p : tp1 - aE * 1.5;
+    }
+    const risk = Math.abs(entry - sl), reward = Math.abs(tp1 - entry);
+    const rr = risk > 0 ? reward / risk : 0;
+    plan = { entry, sl, tp1, tp2, rr };
+    if(rr >= 2){ score += 2; R(`リスクリワード約 1:${rr.toFixed(1)}。損小利大が狙える形`, "ok"); }
+    else if(rr >= 1.3){ score += 1; R(`リスクリワード約 1:${rr.toFixed(1)}`, "info"); }
+    else { score -= 1; R(`リスクリワード約 1:${rr.toFixed(1)} と不利。もっと引き付けるか見送りが無難`, "warn"); }
+  }
+
+  // --- スコア確定 ---
+  let grade;
+  if(dir === "none") grade = "D";
+  else if(score >= 7) grade = "S";
+  else if(score >= 5) grade = "A";
+  else if(score >= 3) grade = "B";
+  else if(score >= 1) grade = "C";
+  else grade = "D";
+
+  const scenario = buildScenario(sym, {dir, grade, higher, mid, lower, plan, price, nearRes, nearSup, sess, fake, m5, m15, h1, tj});
+  return { sym, price, tfData, dir, grade, score, reasons, plan, scenario, sess,
+    nearRes, nearSup, source: sources.has("mock") ? (sources.has("live") ? "mixed" : "mock") : "live",
+    time: Date.now() };
+}
+
+function fmtP(sym, v){
+  if(v === null || v === undefined || !isFinite(v)) return "-";
+  const d = sym.digits !== undefined ? sym.digits : 5;
+  return Number(v).toFixed(d);
+}
+
+/* ---------- 8. シナリオ文章生成 ---------- */
+function buildScenario(sym, ctx){
+  const { dir, grade, higher, plan, price, nearRes, nearSup, sess, fake, tj } = ctx;
+  const L = [];
+  L.push(`【${sym.name}（${sym.id}） 現在値 ${fmtP(sym, price)}】`);
+  L.push(`上位足は${tj(higher)}${higher==="flat" ? "で方向感なし" : "トレンド"}。`);
+  if(dir === "none"){
+    L.push("いまは優位性のある形になっていません。");
+    L.push("方向感が出る、またはレンジの上限・下限に到達するまで待つのが正解です。");
+    L.push("「何もしない」も立派なトレード判断です。");
+  } else {
+    const isBuy = dir === "buy";
+    L.push(isBuy ? "短期足は押し目を形成中、または形成待ちの局面。" : "短期足は戻りを形成中、または形成待ちの局面。");
+    if(plan){
+      L.push(`${isBuy ? "買う" : "売る"}なら ${fmtP(sym, plan.entry)} 付近まで引き付けたい。`);
+      L.push(`損切りは ${fmtP(sym, plan.sl)} ${isBuy ? "割れ" : "超え"}で撤退。`);
+      L.push(`利確候補は ${fmtP(sym, plan.tp1)}、伸びれば ${fmtP(sym, plan.tp2)}。`);
+    }
+    if(isBuy && nearRes) L.push(`ただし直上 ${fmtP(sym, nearRes.p)} に抵抗帯があるため、手前では利確を優先。`);
+    if(!isBuy && nearSup) L.push(`ただし直下 ${fmtP(sym, nearSup.p)} に支持帯があるため、手前では利確を優先。`);
+    if(fake) L.push("直近に「だまし」の動きが出ているため、ブレイク方向への飛び乗りは厳禁。");
+    if(grade === "C" || grade === "D") L.push("現時点では条件が揃っていません。今すぐの飛び乗りは危険です。");
+    if(grade === "S" || grade === "A") L.push("条件はかなり揃っています。それでもロットは資金管理のルール内で。");
+  }
+  L.push(`時間帯：${sess.name}${sess.newsRisk ? "（指標警戒時間）" : ""}`);
+  return L.join("\n");
+}
+/* ---------- 9. アラームエンジン ---------- */
+const alarmLastFired = new Map(); // key: symId|type -> timestamp
+function canFire(symId, type){
+  const key = symId + "|" + type;
+  const last = alarmLastFired.get(key) || 0;
+  if(Date.now() - last < (SETTINGS.cooldownMin || 20) * 60e3) return false;
+  alarmLastFired.set(key, Date.now());
+  return true;
+}
+function fireAlarm(sym, type, label, msg, kind){
+  if(!SETTINGS.alarms[type]) return;
+  if(!canFire(sym.id, type)) return;
+  const item = { t: Date.now(), symId: sym.id, symName: sym.name, type, label, msg, kind };
+  ALARM_LOG.unshift(item);
+  ALARM_LOG = ALARM_LOG.slice(0, 300);
+  saveJSON(LS.LOG, ALARM_LOG);
+  showToast(`${sym.name}：${label}`, msg, kind);
+  sendLineNotify(`${sym.name} ${label}`, msg);
+  if(SETTINGS.sound) beep(kind);
+  if("Notification" in window && Notification.permission === "granted"){
+    try{ new Notification(`TradeScope｜${sym.name} ${label}`, { body: msg, tag: sym.id + type }); }catch(e){}
+  }
+  renderAlarmLog();
+}
+function checkAlarms(res){
+  const sym = res.sym, g = res.grade, d = res.dir, p = res.price;
+  const a15 = res.tfData["15m"].atr;
+  if(d !== "none" && (g === "S" || g === "A")){
+    fireAlarm(sym, "entry", "エントリー候補発生",
+      `${d==="buy"?"買い":"売り"}候補 判定${g}。根拠はチャート分析画面で確認してください。`, d);
+  } else if(d === "buy" && g === "B"){
+    fireAlarm(sym, "buyNear", "買いチャンス接近", `条件が揃いつつあります（判定B）。押し目を引き付けて。`, "buy");
+  } else if(d === "sell" && g === "B"){
+    fireAlarm(sym, "sellNear", "売りチャンス接近", `条件が揃いつつあります（判定B）。戻りを引き付けて。`, "sell");
+  }
+  if(res.plan){
+    if(Math.abs(p - res.plan.sl) < a15 * 0.35)
+      fireAlarm(sym, "slNear", "損切り候補ライン接近", `${fmtP(sym,res.plan.sl)} に接近中。保有中なら撤退準備を。`, "warn");
+    if(Math.abs(p - res.plan.tp1) < a15 * 0.35)
+      fireAlarm(sym, "tpNear", "利確候補ライン接近", `${fmtP(sym,res.plan.tp1)} に接近中。利確または部分利確の検討を。`, "buy");
+  }
+  const m5 = res.tfData["5m"], m15 = res.tfData["15m"];
+  if(m5.volSpike) fireAlarm(sym, "spike", "急変動発生", "短期足でボラティリティが急増しています。飛び乗り注意。", "warn");
+  if(m5.fakeBreak || m15.fakeBreak) fireAlarm(sym, "fakeout", "だましブレイク注意", "ブレイク後に押し戻される動きを検出。逆方向への往復に警戒。", "warn");
+  const d1t = res.tfData["1d"].trend, h4t = res.tfData["4h"].trend, m5t = m5.trend;
+  if(d1t !== "flat" && d1t === h4t && h4t === m5t)
+    fireAlarm(sym, "align", "全時間足の方向一致", `日足〜5分足まで${d1t==="up"?"上昇":"下降"}方向で一致。`, d1t==="up"?"buy":"sell");
+  if(d1t !== "flat" && m5t !== "flat" && d1t !== m5t)
+    fireAlarm(sym, "conflict", "上位足と短期足が逆行", "短期の動きに乗ると上位足に踏まれる危険があります。", "warn");
+  if(g === "D" && d === "none")
+    fireAlarm(sym, "notrade", "ノートレード推奨", "優位性のある形がありません。待ちましょう。", "info");
+}
+
+function sendLineNotify(title, body){
+  if(!SETTINGS.lineNotify) return;
+  const base = (SETTINGS.backendUrl || "").trim().replace(/\/+$/, "");
+  if(!base) return;
+  fetch(base + "/api/ts/notify", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, body }) }).catch(()=>{});
+}
+
+/* ---------- 10. 通知UI（トースト・音） ---------- */
+function showToast(title, msg, kind){
+  const box = document.getElementById("toasts");
+  const el = document.createElement("div");
+  el.className = "toast " + (kind === "buy" ? "buy" : kind === "sell" ? "sell" : kind === "warn" ? "warn" : "");
+  el.innerHTML = `<b>${escapeH(title)}</b><br><span class="muted">${escapeH(msg)}</span>`;
+  box.appendChild(el);
+  setTimeout(()=>{ el.style.opacity = "0"; el.style.transition = "opacity .4s"; setTimeout(()=>el.remove(), 450); }, 6000);
+}
+let audioCtx = null;
+function beep(kind){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === "suspended") audioCtx.resume();
+    const freqs = kind === "warn" ? [660, 440] : kind === "sell" ? [520, 390] : [520, 780];
+    freqs.forEach((f, i)=>{
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = f; o.type = "sine";
+      g.gain.setValueAtTime(0.0001, audioCtx.currentTime + i*0.16);
+      g.gain.exponentialRampToValueAtTime(0.18, audioCtx.currentTime + i*0.16 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + i*0.16 + 0.15);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(audioCtx.currentTime + i*0.16); o.stop(audioCtx.currentTime + i*0.16 + 0.16);
+    });
+  }catch(e){}
+}
+function escapeH(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ---------- 11. スキャナ（自動監視） ---------- */
+const lastResults = new Map(); // symId -> analysis result or {error}
+let scanTimer = null, scanning = false, scanRunning = false;
+let tdRotation = 0; // Twelve Data銘柄のローテーション位置
+
+async function scanOnce(){
+  if(scanRunning) return;
+  scanRunning = true;
+  setScanStat(true, "更新中…");
+  const enabled = SYMBOLS.filter(s=>s.enabled);
+  const backendOn = !!(SETTINGS.backendUrl || "").trim() && SETTINGS.dataMode !== "mock";
+  const fastTD = s => s.provider === TD && (GMO_MAP[s.id] || backendOn);
+  const bnSyms = enabled.filter(s=>s.provider === BN || SETTINGS.dataMode === "mock" || (SETTINGS.dataMode !== "mock" && fastTD(s)));
+  const tdSyms = enabled.filter(s=>s.provider === TD && SETTINGS.dataMode !== "mock" && !fastTD(s));
+  const noneSyms = enabled.filter(s=>s.provider === NONE && SETTINGS.dataMode !== "mock");
+  for(const s of noneSyms) lastResults.set(s.id, { sym: s, error: "unsupported", time: Date.now() });
+  // Binance/モック銘柄: 全部処理
+  for(const s of bnSyms){
+    try{ const r = await analyzeSymbol(s); lastResults.set(s.id, r); checkAlarms(r); }
+    catch(e){ lastResults.set(s.id, { sym: s, error: String(e.message||e), time: Date.now() }); }
+    renderDash();
+  }
+  // Twelve Data銘柄: レート制限のため1周期に1銘柄（キーがあれば）
+  if(tdSyms.length){
+    if(!SETTINGS.tdKey && !backendOn && SETTINGS.dataMode === "real"){
+      for(const s of tdSyms) lastResults.set(s.id, { sym: s, error: "APIキー未設定", time: Date.now() });
+    } else {
+      const pick = tdSyms[tdRotation % tdSyms.length]; tdRotation++;
+      try{ const r = await analyzeSymbol(pick); lastResults.set(pick.id, r); checkAlarms(r); }
+      catch(e){
+        if(SETTINGS.dataMode === "auto"){
+          try{ const saved = SETTINGS.dataMode; /* フォールバックはfetchCandles内で処理済み */ }catch(_){}
+        }
+        lastResults.set(pick.id, { sym: pick, error: String(e.message||e), time: Date.now() });
+      }
+    }
+  }
+  renderDash();
+  setScanStat(scanning, scanning ? "監視中" : "停止中");
+  scanRunning = false;
+}
+function startScan(){
+  scanning = true;
+  document.getElementById("btnScanToggle").textContent = "監視を停止";
+  document.getElementById("btnScanToggle").classList.remove("pri");
+  setScanStat(true, "監視中");
+  scanOnce();
+  scanTimer = setInterval(scanOnce, Math.max(5, SETTINGS.scanSec) * 1000);
+}
+function stopScan(){
+  scanning = false;
+  if(scanTimer) clearInterval(scanTimer);
+  document.getElementById("btnScanToggle").textContent = "監視を開始";
+  document.getElementById("btnScanToggle").classList.add("pri");
+  setScanStat(false, "停止中");
+}
+function setScanStat(on, txt){
+  document.getElementById("scanDot").className = "dot " + (on ? "on" : "off");
+  document.getElementById("scanStat").textContent = txt;
+}
+/* ---------- 12. ダッシュボード描画 ---------- */
+function gradeStamp(g, small){
+  return `<div class="stamp ${small?"sm":""} sc-${g}">${g}</div>`;
+}
+function dirLabel(d){
+  return d === "buy" ? '<span class="dir-buy">▲ 買い目線</span>' : d === "sell" ? '<span class="dir-sell">▼ 売り目線</span>' : '<span class="dir-none">— 待ち</span>';
+}
+function renderDash(){
+  const body = document.getElementById("dashBody");
+  const enabled = SYMBOLS.filter(s=>s.enabled);
+  if(!enabled.length){ body.innerHTML = `<tr><td colspan="7" class="muted">監視する銘柄がありません。設定 → 銘柄管理で有効にしてください。</td></tr>`; return; }
+  body.innerHTML = enabled.map(s=>{
+    const r = lastResults.get(s.id);
+    if(!r) return `<tr class="clickable" data-sym="${s.id}"><td><b>${escapeH(s.name)}</b><br><span class="muted px">${s.id}</span></td><td colspan="5" class="muted">未分析</td><td class="muted">-</td></tr>`;
+    if(r.error){
+      const label = r.error === "unsupported" ? "データ未対応" : "取得エラー";
+      return `<tr data-sym="${s.id}"><td><b>${escapeH(s.name)}</b><br><span class="muted px">${s.id}</span></td>
+        <td class="muted">-</td><td>${gradeStamp("D", true)}</td><td class="dir-none">—</td><td class="muted">-</td>
+        <td><span class="badge nodata">${label}</span></td>
+        <td class="muted px">${new Date(r.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}</td></tr>`;
+    }
+    const h4t = r.tfData["4h"].trend, tj = t=>t==="up"?'<span class="dir-buy">上昇</span>':t==="down"?'<span class="dir-sell">下降</span>':'<span class="dir-none">横ばい</span>';
+    const src = r.source === "live" ? '<span class="badge live">実データ</span>' : r.source === "mock" ? '<span class="badge mock">モック</span>' : '<span class="badge mock">一部モック</span>';
+    return `<tr class="clickable" data-sym="${s.id}">
+      <td><b>${escapeH(s.name)}</b><br><span class="muted px">${s.id}</span></td>
+      <td class="px">${fmtP(s, r.price)}</td>
+      <td>${gradeStamp(r.grade, true)}</td>
+      <td>${dirLabel(r.dir)}</td>
+      <td>${tj(h4t)}</td>
+      <td>${src}</td>
+      <td class="muted px">${new Date(r.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}</td></tr>`;
+  }).join("");
+  body.querySelectorAll("tr.clickable").forEach(tr=>{
+    tr.addEventListener("click", ()=>{
+      const id = tr.getAttribute("data-sym");
+      document.getElementById("chartSym").value = id;
+      switchScr("chart");
+      analyzeAndShow();
+    });
+  });
+  const mode = SETTINGS.dataMode === "mock" ? "全銘柄モックデータで動作中（動作確認モード）" :
+    "仮想通貨=Binance / FX主要ペア=GMOコイン為替（signal-desk経由）/ 金=PAXG実勢価格";
+  document.getElementById("dashHint").textContent = mode;
+}
+
+/* ---------- 13. チャート画面 ---------- */
+// ライブラリ動的ロード（jsDelivr → unpkg の順で試行。失敗してもアプリは動く）
+let chartLibPromise = null;
+function loadChartLib(){
+  if(typeof LightweightCharts !== "undefined") return Promise.resolve(true);
+  if(chartLibPromise) return chartLibPromise;
+  const urls = [
+    "https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js",
+    "https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js",
+  ];
+  chartLibPromise = (async ()=>{
+    for(const u of urls){
+      const ok = await new Promise(res=>{
+        const el = document.createElement("script");
+        el.src = u;
+        el.onload = ()=>res(true);
+        el.onerror = ()=>{ el.remove(); res(false); };
+        document.head.appendChild(el);
+      });
+      if(ok && typeof LightweightCharts !== "undefined") return true;
+    }
+    chartLibPromise = null; // 次回リトライ可能に
+    return false;
+  })();
+  return chartLibPromise;
+}
+// v4(addCandlestickSeries) / v5(addSeries(CandlestickSeries)) 両対応ヘルパー
+function makeCandleSeries(ch, opts){
+  if(typeof ch.addCandlestickSeries === "function") return ch.addCandlestickSeries(opts);
+  return ch.addSeries(LightweightCharts.CandlestickSeries, opts);
+}
+function makeLineSeries(ch, opts){
+  if(typeof ch.addLineSeries === "function") return ch.addLineSeries(opts);
+  return ch.addSeries(LightweightCharts.LineSeries, opts);
+}
+function setSeriesMarkers(series, markers){
+  try{
+    if(typeof series.setMarkers === "function"){ series.setMarkers(markers); return; }
+    if(typeof LightweightCharts.createSeriesMarkers === "function") LightweightCharts.createSeriesMarkers(series, markers);
+  }catch(e){}
+}
+let chart = null, candleSeries = null, emaSeriesArr = [], priceLines = [], curTF = "15m";
+function initChart(){
+  if(typeof LightweightCharts === "undefined") return false;
+  const box = document.getElementById("chartBox");
+  box.innerHTML = "";
+  chart = LightweightCharts.createChart(box, {
+    layout: { background: { color: "#0d1320" }, textColor: "#8b96a8" },
+    grid: { vertLines: { color: "#1a2233" }, horzLines: { color: "#1a2233" } },
+    timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#232d40" },
+    rightPriceScale: { borderColor: "#232d40" },
+    crosshair: { mode: 0 },
+    autoSize: true,
+  });
+  candleSeries = makeCandleSeries(chart, {
+    upColor: "#26c6a2", downColor: "#f2586f", borderVisible: false,
+    wickUpColor: "#26c6a2", wickDownColor: "#f2586f",
+  });
+  try{ chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{ if(r) persistView(r); }); }catch(e){}
+  return true;
+}
+function clearOverlays(){
+  emaSeriesArr.forEach(s=>{ try{ chart.removeSeries(s); }catch(e){} });
+  emaSeriesArr = [];
+  priceLines.forEach(pl=>{ try{ candleSeries.removePriceLine(pl); }catch(e){} });
+  priceLines = [];
+}
+// 表示状態(銘柄・時間足・ズーム位置)の保存: iOSの自動リロード対策
+const VIEW_KEY = "ts_view_v1";
+let savedView = loadJSON(VIEW_KEY, null);
+let pendingViewRange = (savedView && savedView.range) ? savedView.range : null;
+let pendingViewKey = savedView ? (savedView.sym + "|" + savedView.tf) : null;
+let viewSaveTimer = null;
+function persistView(range){
+  if(!lastAnalysisShown) return;
+  if(viewSaveTimer) clearTimeout(viewSaveTimer);
+  viewSaveTimer = setTimeout(()=>{
+    saveJSON(VIEW_KEY, { sym: lastAnalysisShown.sym.id, tf: curTF,
+      range: range ? { from: range.from, to: range.to } : null, t: Date.now() });
+  }, 800);
+}
+
+// 自動更新用: ローソクと表示位置に触れず、EMA・サポレジ・候補ラインだけ差し替える
+function refreshOverlays(res, tf){
+  if(!chart || !candleSeries) return false;
+  if(lastDrawKey !== res.sym.id + "|" + tf) return false; // 表示中の銘柄・時間足と違えば何もしない
+  const a = res.tfData[tf];
+  ["e9","e21","e200"].forEach((key, i)=>{
+    const srs = emaSeriesArr[i];
+    if(srs){ try{ srs.setData(a.candles.map((c,j)=> a[key][j]===null ? null : {time:c.time, value:a[key][j]}).filter(Boolean)); }catch(e){} }
+  });
+  priceLines.forEach(pl=>{ try{ candleSeries.removePriceLine(pl); }catch(e){} });
+  priceLines = [];
+  const addLine = (price, color, title, style)=>{
+    if(price === null || price === undefined || !isFinite(price)) return;
+    priceLines.push(candleSeries.createPriceLine({ price, color, lineWidth: 1, lineStyle: style !== undefined ? style : 2, axisLabelVisible: true, title }));
+  };
+  res.tfData["1h"].sr.forEach(l=> addLine(l.p, l.p > res.price ? "#f2586f" : "#26c6a2", l.p > res.price ? "抵抗" : "支持"));
+  addLine(res.tfData["1h"].lastHigh, "#f2586f", "直近高値", 3);
+  addLine(res.tfData["1h"].lastLow, "#26c6a2", "直近安値", 3);
+  if(res.plan){
+    addLine(res.plan.entry, "#5b9cf5", "エントリー候補", 0);
+    addLine(res.plan.sl, "#f2586f", "損切り候補", 0);
+    addLine(res.plan.tp1, "#26c6a2", "利確候補1", 0);
+    addLine(res.plan.tp2, "#26c6a2", "利確候補2", 2);
+  }
+  return true;
+}
+
+var lastDrawKey = null;
+function drawChart(res, tf){
+  if(typeof LightweightCharts === "undefined") return false;
+  if(!chart){ if(!initChart()) return false; }
+  // 同じ銘柄・同じ時間足の再描画なら、ユーザーのズーム・表示位置を保持する
+  const drawKey = res.sym.id + "|" + tf;
+  let prevRange = null;
+  if(drawKey === lastDrawKey){
+    try{ prevRange = chart.timeScale().getVisibleLogicalRange(); }catch(e){}
+  }
+  clearOverlays();
+  const a = res.tfData[tf];
+  candleSeries.setData(a.candles.map(c=>({time:c.time, open:c.open, high:c.high, low:c.low, close:c.close})));
+  // EMA 9/21/200
+  const emaDefs = [["e9","#5b9cf5",1],["e21","#f0b429",1],["e200","#b06ef2",2]];
+  for(const [key,color,w] of emaDefs){
+    const s = makeLineSeries(chart, { color, lineWidth: w, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
+    s.setData(a.candles.map((c,i)=> a[key][i]===null ? null : {time:c.time, value:a[key][i]}).filter(Boolean));
+    emaSeriesArr.push(s);
+  }
+  // サポレジ（1h/4hベース）
+  const sym = res.sym;
+  const addLine = (price, color, title, style)=>{
+    if(price === null || !isFinite(price)) return;
+    priceLines.push(candleSeries.createPriceLine({ price, color, lineWidth: 1, lineStyle: style !== undefined ? style : 2, axisLabelVisible: true, title }));
+  };
+  res.tfData["1h"].sr.forEach(l=> addLine(l.p, l.p > res.price ? "#f2586f" : "#26c6a2", l.p > res.price ? "抵抗" : "支持"));
+  addLine(res.tfData["1h"].lastHigh, "#f2586f", "直近高値", 3);
+  addLine(res.tfData["1h"].lastLow, "#26c6a2", "直近安値", 3);
+  if(res.plan){
+    addLine(res.plan.entry, "#5b9cf5", "エントリー候補", 0);
+    addLine(res.plan.sl, "#f2586f", "損切り候補", 0);
+    addLine(res.plan.tp1, "#26c6a2", "利確候補1", 0);
+    addLine(res.plan.tp2, "#26c6a2", "利確候補2", 2);
+  }
+  // アラーム発生位置マーカー（この銘柄・表示中TF期間内）
+  const t0 = a.candles[0].time * 1000;
+  const markers = ALARM_LOG.filter(x=>x.symId===sym.id && x.t >= t0).slice(0,30).map(x=>({
+    time: Math.floor(x.t/1000) - (Math.floor(x.t/1000) % (TF_MS[tf]/1000)),
+    position: x.kind === "sell" || x.kind === "warn" ? "aboveBar" : "belowBar",
+    color: x.kind === "sell" ? "#f2586f" : x.kind === "warn" ? "#f0b429" : "#26c6a2",
+    shape: x.kind === "warn" ? "circle" : x.kind === "sell" ? "arrowDown" : "arrowUp",
+    text: x.label.slice(0,6),
+  })).sort((x,y)=>x.time-y.time);
+  setSeriesMarkers(candleSeries, markers);
+  if(prevRange){
+    try{ chart.timeScale().setVisibleLogicalRange(prevRange); }catch(e){ chart.timeScale().fitContent(); }
+  } else if(pendingViewRange && drawKey === pendingViewKey){
+    try{ chart.timeScale().setVisibleLogicalRange(pendingViewRange); }catch(e){ chart.timeScale().fitContent(); }
+    pendingViewRange = null;
+  } else {
+    chart.timeScale().fitContent();
+  }
+  lastDrawKey = drawKey;
+  return true;
+}
+let lastAnalysisShown = null;
+
+/* ---------- 13b. ライブ更新（毎秒） ---------- */
+let liveTimer = null, liveReTimer = null, liveSym = null, liveLastCandle = null, liveBusy = false;
+async function fetchLivePrice(sym){
+  if(SETTINGS.dataMode === "mock" || sym.provider === NONE){
+    const cc = candleCache.get(sym.id + "|1m");
+    const base = liveLastCandle ? liveLastCandle.close : (cc ? cc.candles[cc.candles.length-1].close : 100);
+    return base * (1 + (Math.random() - 0.5) * 0.0005);
+  }
+  if(sym.provider === BN){
+    try{
+      const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${sym.apiSymbol}`);
+      if(!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+      return +j.price;
+    }catch(e){
+      const base = backendBase();
+      if(!base) throw e;
+      const r2 = await fetch(`${base}/api/ts/price?symbol=${sym.id}`);
+      const j2 = await r2.json().catch(()=>({}));
+      if(r2.ok && j2.price) return +j2.price;
+      throw e;
+    }
+  }
+  if(sym.provider === TD){
+    if(GMO_MAP[sym.id]){
+      try{ return await gmoPrice(sym.id); }catch(e){ /* CORS等で不可ならサーバー/キーへ */ }
+    }
+    const base = backendBase();
+    if(base){
+      const r = await fetch(`${base}/api/ts/price?symbol=${sym.id}`);
+      const j = await r.json().catch(()=>({}));
+      if(r.ok && j.price) return +j.price;
+      if(!SETTINGS.tdKey) throw new Error(j.error || "backend price error");
+    }
+    if(!SETTINGS.tdKey) throw new Error("NO_KEY");
+    await tdThrottle();
+    const r2 = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(sym.apiSymbol)}&apikey=${SETTINGS.tdKey}`);
+    const j2 = await r2.json();
+    if(!j2.price) throw new Error(j2.message || "no price");
+    return +j2.price;
+  }
+  throw new Error("unsupported");
+}
+function updateLiveBadge(on, tickMs){
+  const el = document.getElementById("liveBadge");
+  if(!on){ el.innerHTML = 'ライブ更新：停止中'; document.getElementById("livePx").textContent = ""; return; }
+  const s = tickMs >= 1000 ? Math.round(tickMs/1000) : 1;
+  el.innerHTML = `<span class="dot on"></span><b style="color:var(--buy)">LIVE</b> ${s}秒ごとに更新中`;
+}
+function stopLive(){
+  if(liveTimer) clearInterval(liveTimer);
+  if(liveReTimer) clearInterval(liveReTimer);
+  liveTimer = liveReTimer = null; liveSym = null; liveLastCandle = null;
+  updateLiveBadge(false);
+}
+function syncLiveLastCandle(){
+  if(!liveSym) return;
+  const cc = candleCache.get(liveSym.id + "|" + curTF);
+  liveLastCandle = cc ? Object.assign({}, cc.candles[cc.candles.length-1]) : null;
+}
+function applyTick(p){
+  if(!liveSym || !isFinite(p)) return;
+  // 現在値表示
+  const pxEl = document.getElementById("livePx");
+  const prev = liveLastCandle ? liveLastCandle.close : p;
+  pxEl.textContent = fmtP(liveSym, p);
+  pxEl.style.color = p > prev ? "var(--buy)" : p < prev ? "var(--sell)" : "var(--text)";
+  // 表示中の時間足の最終ローソクをリアルタイム更新
+  const step = TF_MS[curTF] / 1000, now = Math.floor(Date.now()/1000), bucket = now - (now % step);
+  if(liveLastCandle){
+    if(bucket > liveLastCandle.time){
+      liveLastCandle = { time: bucket, open: p, high: p, low: p, close: p };
+    } else {
+      liveLastCandle.close = p;
+      liveLastCandle.high = Math.max(liveLastCandle.high, p);
+      liveLastCandle.low = Math.min(liveLastCandle.low, p);
+    }
+    if(candleSeries){ try{ candleSeries.update(Object.assign({}, liveLastCandle)); }catch(e){} }
+  }
+  // 損切り・利確ライン接近をティックごとに監視（クールダウン付き）
+  const r = lastAnalysisShown;
+  if(r && r.plan && r.sym.id === liveSym.id){
+    const a15 = r.tfData["15m"].atr;
+    if(Math.abs(p - r.plan.sl) < a15 * 0.35)
+      fireAlarm(r.sym, "slNear", "損切り候補ライン接近", `現在値が ${fmtP(r.sym, r.plan.sl)} に接近中。保有中なら撤退準備を。`, "warn");
+    if(Math.abs(p - r.plan.tp1) < a15 * 0.35)
+      fireAlarm(r.sym, "tpNear", "利確候補ライン接近", `現在値が ${fmtP(r.sym, r.plan.tp1)} に接近中。利確の検討を。`, "buy");
+  }
+}
+function startLive(sym){
+  stopLive();
+  liveSym = sym;
+  // 更新間隔: 仮想通貨・モック=1秒 / FX・金=サーバー経由なら5秒 / キー直結なら15秒
+  const isTD = sym.provider === TD && SETTINGS.dataMode !== "mock";
+  const viaFast = isTD && (!!GMO_MAP[sym.id] || !!backendBase());
+  const tickMs = !isTD ? 1000 : viaFast ? 5000 : 15000;
+  const reMs = !isTD ? 20000 : viaFast ? 60000 : 180000; // 全時間足の再分析間隔
+  syncLiveLastCandle();
+  updateLiveBadge(true, tickMs);
+  liveTimer = setInterval(async ()=>{
+    if(liveBusy || !liveSym) return;
+    liveBusy = true;
+    try{ applyTick(await fetchLivePrice(liveSym)); }catch(e){}
+    liveBusy = false;
+  }, tickMs);
+  liveReTimer = setInterval(async ()=>{
+    if(!liveSym) return;
+    try{
+      // 短期足キャッシュを破棄して再分析（判定・シナリオ・ラインを最新化）
+      candleCache.delete(liveSym.id + "|1m");
+      candleCache.delete(liveSym.id + "|5m");
+      const res = await analyzeSymbol(liveSym);
+      lastResults.set(liveSym.id, res);
+      lastAnalysisShown = res;
+      renderScoreCard(res);
+      checkAlarms(res);
+      renderDash();
+      try{ refreshOverlays(res, curTF); }catch(e){} // チャート本体・ズームには触れない
+    }catch(e){}
+  }, reMs);
+}
+
+async function analyzeAndShow(){
+  const id = document.getElementById("chartSym").value;
+  const sym = getSym(id);
+  if(!sym) return;
+  const msg = document.getElementById("chartMsg");
+  msg.textContent = "分析中…（6つの時間足を取得しています）";
+  document.getElementById("btnAnalyze").disabled = true;
+  loadChartLib(); // 裏で読み込み開始（未読込の場合）
+  try{
+    const res = await analyzeSymbol(sym);
+    lastResults.set(sym.id, res);
+    lastAnalysisShown = res;
+    renderScoreCard(res);   // 判定・シナリオを先に必ず表示
+    checkAlarms(res);
+    renderDash();
+    const libOk = await loadChartLib();
+    let drawn = false;
+    if(libOk){ try{ drawn = drawChart(res, curTF); }catch(e){ drawn = false; } }
+    startLive(sym);  // 分析後、ライブ更新を自動開始
+    const dataNote = res.source === "mock" ? "⚠ モックデータ（実際の相場ではありません）" :
+      res.source === "mixed" ? "⚠ 一部の時間足がモックデータ" : "実データ";
+    const why = (res.source !== "live" && lastFetchErrors.get(sym.id)) ? `｜理由: ${lastFetchErrors.get(sym.id)}` : "";
+    msg.textContent = (drawn ? dataNote + " 表示中" :
+      dataNote + "。チャート描画ライブラリを読み込めませんでした（通信環境による）。判定・シナリオ・アラームは正常に動作しています。") + why;
+  }catch(e){
+    msg.textContent = "この銘柄はデータ未対応、または取得に失敗しました（" + (e && e.message || e) + "）。アプリは継続動作します。";
+    document.getElementById("scoreCard").style.display = "none";
+  }
+  document.getElementById("btnAnalyze").disabled = false;
+}
+function renderScoreCard(res){
+  document.getElementById("scoreCard").style.display = "block";
+  const st = document.getElementById("bigStamp");
+  st.className = "stamp sc-" + res.grade;
+  st.textContent = res.grade;
+  const gradeTxt = { S:"かなり条件が良い", A:"狙える", B:"様子見しながら狙える", C:"危険・待ち", D:"ノートレード" }[res.grade];
+  document.getElementById("scoreTitle").innerHTML = `${dirLabel(res.dir)}　判定 ${res.grade}：${gradeTxt}`;
+  document.getElementById("scoreSub").textContent = `${res.sym.name}（${res.sym.id}）現在値 ${fmtP(res.sym, res.price)}｜${new Date(res.time).toLocaleTimeString("ja-JP")}`;
+  document.getElementById("mtfStrip").innerHTML = TF_LIST.map(tf=>{
+    const t = res.tfData[tf].trend;
+    const cl = t === "up" ? "dir-buy" : t === "down" ? "dir-sell" : "dir-none";
+    const mk = t === "up" ? "↑" : t === "down" ? "↓" : "→";
+    return `<span class="mtfchip">${TF_LABEL[tf]} <b class="${cl}">${mk}</b></span>`;
+  }).join("");
+  document.getElementById("scenarioTxt").textContent = res.scenario;
+  document.getElementById("reasonList").innerHTML = res.reasons.map(r=>{
+    const cl = r.kind === "ok" ? "ok" : r.kind === "warn" ? "warn" : r.kind === "dng" ? "dng" : "";
+    return `<li class="${cl}">${escapeH(r.txt)}</li>`;
+  }).join("");
+  const pb = document.getElementById("planBox");
+  if(res.plan){
+    pb.innerHTML = `<h3 style="margin-top:12px">エントリープラン（候補）</h3>
+      <div class="kv"><span>エントリー候補</span><b>${fmtP(res.sym,res.plan.entry)}</b></div>
+      <div class="kv"><span>損切り候補</span><b class="dir-sell">${fmtP(res.sym,res.plan.sl)}</b></div>
+      <div class="kv"><span>利確候補1</span><b class="dir-buy">${fmtP(res.sym,res.plan.tp1)}</b></div>
+      <div class="kv"><span>利確候補2</span><b class="dir-buy">${fmtP(res.sym,res.plan.tp2)}</b></div>
+      <div class="kv"><span>リスクリワード</span><b>1 : ${res.plan.rr.toFixed(2)}</b></div>
+      <p class="muted" style="margin-top:6px">※候補値は自動計算です。実際の発注は必ずご自身の判断で。資金管理画面でこの値から適正ロットを計算できます。</p>`;
+  } else pb.innerHTML = "";
+}
+
+/* ---------- 14. アラーム履歴描画 ---------- */
+function renderAlarmLog(){
+  const box = document.getElementById("alogList");
+  if(!ALARM_LOG.length){ box.innerHTML = `<p class="muted" style="padding:12px 0">まだアラームはありません。ダッシュボードで「監視を開始」すると、条件を満たしたときに通知されます。</p>`; return; }
+  box.innerHTML = ALARM_LOG.slice(0,150).map(x=>{
+    const cl = x.kind === "buy" ? "dir-buy" : x.kind === "sell" ? "dir-sell" : x.kind === "warn" ? "" : "";
+    const col = x.kind === "warn" ? "style='color:var(--warn)'" : "";
+    const d = new Date(x.t);
+    return `<div class="alogitem"><span class="t">${d.toLocaleDateString("ja-JP",{month:"2-digit",day:"2-digit"})} ${d.toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}</span>
+      <div><span class="atag ${cl}" ${col}>${escapeH(x.symName)}｜${escapeH(x.label)}</span><br><span class="muted">${escapeH(x.msg)}</span></div></div>`;
+  }).join("");
+}
+
+/* ---------- 15. 資金管理・ロット計算 ---------- */
+const USDJPY_FALLBACK = 155;
+function getUsdJpy(){
+  const r = lastResults.get("USDJPY");
+  return r && r.price ? r.price : USDJPY_FALLBACK;
+}
+function calcLot(){
+  const sym = getSym(document.getElementById("mmSym").value);
+  const cap = parseFloat(document.getElementById("mmCap").value);
+  const cur = document.getElementById("mmCur").value;
+  const riskPct = parseFloat(document.getElementById("mmRisk").value);
+  const entry = parseFloat(document.getElementById("mmEntry").value);
+  const sl = parseFloat(document.getElementById("mmSL").value);
+  const out = document.getElementById("mmResult");
+  if(!sym || !isFinite(cap) || !isFinite(entry) || !isFinite(sl) || entry === sl){
+    out.innerHTML = `<div class="warnbox">資金・エントリー価格・損切り価格を入力してください（エントリーと損切りが同じ価格は不可）。</div>`;
+    return;
+  }
+  SETTINGS.mmCap = cap; SETTINGS.mmCur = cur; SETTINGS.mmRisk = riskPct; saveJSON(LS.SET, SETTINGS);
+  const riskMoney = cap * riskPct / 100; // 口座通貨建て
+  const dist = Math.abs(entry - sl);
+  const usdjpy = getUsdJpy();
+  let html = "", warn = "";
+  if(sym.type === "crypto"){
+    // 数量 = リスク許容額 ÷ 損切り幅（USDT建て。円資金はUSD換算）
+    const riskUsd = cur === "JPY" ? riskMoney / usdjpy : riskMoney;
+    const qty = riskUsd / dist;
+    const notionalUsd = qty * entry;
+    html = `<div class="kv"><span>許容損失額</span><b>${riskMoney.toLocaleString()} ${cur}（約 ${Math.round(riskUsd).toLocaleString()} USDT）</b></div>
+      <div class="kv"><span>損切り幅</span><b>${fmtP(sym,dist)}</b></div>
+      <div class="kv"><span>適正数量</span><b>${qty.toPrecision(4)} ${sym.id.replace("USDT","")}</b></div>
+      <div class="kv"><span>建玉サイズ（概算）</span><b>約 ${Math.round(notionalUsd).toLocaleString()} USDT</b></div>`;
+    const capUsd = cur === "JPY" ? cap / usdjpy : cap;
+    if(notionalUsd > capUsd * 10) warn = "レバレッジ10倍を超える建玉です。損切り幅が狭すぎるか、リスク設定が高すぎます。";
+  } else {
+    // FX・金: 1ロット=10万通貨（金はcontractオンス）
+    const pip = sym.pip || 0.0001;
+    const pips = dist / pip;
+    let pipValuePerLotAcct; // 1ロットあたり1pipの価値（口座通貨建て）
+    if(sym.type === "metal"){
+      const perUnit = (sym.contract || 100) * pip; // 1ロット・1pipのUSD価値（XAUUSD: 100oz×0.1=10USD）
+      pipValuePerLotAcct = cur === "JPY" ? perUnit * usdjpy : perUnit;
+      if(sym.quote === "EUR") warn = "ユーロ建て銘柄のため計算は概算です（EUR/口座通貨レート未考慮）。";
+    } else if(sym.quote === "JPY"){
+      pipValuePerLotAcct = cur === "JPY" ? 1000 : 1000 / usdjpy; // 10万通貨×0.01円
+    } else if(sym.quote === "USD"){
+      pipValuePerLotAcct = cur === "JPY" ? 10 * usdjpy : 10; // 10USD/pip
+    } else {
+      pipValuePerLotAcct = cur === "JPY" ? 10 * usdjpy : 10;
+      warn = "クロス通貨のためpip価値は概算（10USD/pip相当）で計算しています。";
+    }
+    const lot = riskMoney / (pips * pipValuePerLotAcct);
+    const lotRounded = Math.floor(lot * 100) / 100;
+    html = `<div class="kv"><span>許容損失額</span><b>${riskMoney.toLocaleString()} ${cur}</b></div>
+      <div class="kv"><span>損切り幅</span><b>${fmtP(sym,dist)}（約 ${pips.toFixed(1)} pips）</b></div>
+      <div class="kv"><span>1pipの価値（1ロット）</span><b>約 ${Math.round(pipValuePerLotAcct).toLocaleString()} ${cur}</b></div>
+      <div class="kv"><span>適正ロット</span><b style="font-size:16px">${lotRounded.toFixed(2)} ロット</b></div>
+      <p class="muted" style="margin-top:6px">※1ロット=10万通貨${sym.type==="metal" ? `（金・貴金属は1ロット=${sym.contract||100}オンス）` : ""}換算。0.01ロット単位に切り捨て済み。</p>`;
+    if(lotRounded < 0.01) warn = "計算結果が0.01ロット未満です。損切り幅が広すぎるか資金に対してリスクが小さすぎます。";
+    if(pips < 3) warn = "損切り幅が3pips未満と極端に狭いため、スプレッドで即損切りになる危険があります。";
+    if(lotRounded > 0 && riskMoney / cap > 0.031) warn = "許容損失が資金の3%を超えています。";
+  }
+  out.innerHTML = html + (warn ? `<div class="warnbox">⚠ ${warn}</div>` : `<div class="okbox">✓ 資金の${riskPct}%以内に損失が収まるロットです。</div>`);
+}
+function fillFromAnalysis(){
+  const id = document.getElementById("mmSym").value;
+  const r = lastResults.get(normalizeSymbol(id)) || lastAnalysisShown;
+  if(!r || !r.plan){ showToast("資金管理", "先にチャート分析画面でこの銘柄を分析してください。", "warn"); return; }
+  if(r.sym.id !== normalizeSymbol(id)) document.getElementById("mmSym").value = r.sym.id;
+  document.getElementById("mmEntry").value = r.plan.entry.toFixed(r.sym.digits ?? 5);
+  document.getElementById("mmSL").value = r.plan.sl.toFixed(r.sym.digits ?? 5);
+}
+
+/* ---------- 16. 設定画面 ---------- */
+function renderSettings(){
+  document.getElementById("setDataMode").value = SETTINGS.dataMode;
+  document.getElementById("setTdKey").value = SETTINGS.tdKey || "";
+  document.getElementById("setBackend").value = SETTINGS.backendUrl || "";
+  document.getElementById("setInterval").value = SETTINGS.scanSec;
+  document.getElementById("setSound").checked = !!SETTINGS.sound;
+  document.getElementById("setLine").checked = !!SETTINGS.lineNotify;
+  document.getElementById("alarmToggles").innerHTML = ALARM_TYPES.map(([k, label])=>
+    `<div class="symrow"><div class="nm">${label}</div>
+     <label class="switch"><input type="checkbox" data-al="${k}" ${SETTINGS.alarms[k]?"checked":""}><span class="slider"></span></label></div>`).join("");
+  document.getElementById("alarmToggles").querySelectorAll("input[data-al]").forEach(el=>{
+    el.addEventListener("change", ()=>{ SETTINGS.alarms[el.getAttribute("data-al")] = el.checked; saveJSON(LS.SET, SETTINGS); });
+  });
+  renderSymList();
+}
+function renderSymList(){
+  const box = document.getElementById("symList");
+  const cats = [...new Set(SYMBOLS.map(s=>s.cat))];
+  box.innerHTML = cats.map(cat=>{
+    const rows = SYMBOLS.filter(s=>s.cat===cat).map(s=>
+      `<div class="symrow">
+        <div class="nm">${escapeH(s.name)}<small>${s.id} ｜ ${s.provider === "none" ? "未対応" : s.provider} : ${escapeH(s.apiSymbol)}</small></div>
+        <label class="switch"><input type="checkbox" data-en="${s.id}" ${s.enabled?"checked":""}><span class="slider"></span></label>
+        <button class="btn dng" data-del="${s.id}" style="padding:4px 10px;font-size:12px">削除</button>
+      </div>`).join("");
+    return `<div class="catlabel">${escapeH(cat)}</div>` + rows;
+  }).join("");
+  box.querySelectorAll("input[data-en]").forEach(el=>{
+    el.addEventListener("change", ()=>{
+      const s = getSym(el.getAttribute("data-en"));
+      if(s){ s.enabled = el.checked; saveJSON(LS.SYM, SYMBOLS); refreshSymSelects(); renderDash(); }
+    });
+  });
+  box.querySelectorAll("button[data-del]").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const id = el.getAttribute("data-del");
+      if(!confirm(id + " を銘柄リストから削除しますか？")) return;
+      SYMBOLS = SYMBOLS.filter(s=>s.id!==id);
+      saveJSON(LS.SYM, SYMBOLS); renderSymList(); refreshSymSelects(); renderDash();
+    });
+  });
+}
+function refreshSymSelects(){
+  const opts = (list)=>{
+    const cats = [...new Set(list.map(s=>s.cat))];
+    return cats.map(c=>`<optgroup label="${escapeH(c)}">` +
+      list.filter(s=>s.cat===c).map(s=>`<option value="${s.id}">${escapeH(s.name)}（${s.id}）</option>`).join("") + `</optgroup>`).join("");
+  };
+  const analyzable = SYMBOLS.filter(s=>s.provider !== "none" || SETTINGS.dataMode === "mock");
+  const cs = document.getElementById("chartSym"), ms = document.getElementById("mmSym");
+  const keep1 = cs.value, keep2 = ms.value;
+  cs.innerHTML = opts(analyzable.length ? analyzable : SYMBOLS);
+  ms.innerHTML = opts(SYMBOLS);
+  if(keep1 && getSym(keep1)) cs.value = keep1;
+  if(keep2 && getSym(keep2)) ms.value = keep2;
+}
+
+/* ---------- 17. 画面切替・初期化 ---------- */
+function switchScr(name){
+  document.querySelectorAll(".scr").forEach(s=>s.classList.remove("act"));
+  document.getElementById("scr-"+name).classList.add("act");
+  document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("act", b.getAttribute("data-scr")===name));
+  if(name === "chart" && !chart) loadChartLib().then(ok=>{ if(ok) initChart(); });
+  if(name === "alog") renderAlarmLog();
+}
+document.querySelectorAll(".tabs button").forEach(b=>b.addEventListener("click", ()=>switchScr(b.getAttribute("data-scr"))));
+
+document.getElementById("btnScanToggle").addEventListener("click", ()=> scanning ? stopScan() : startScan());
+document.getElementById("btnScanOnce").addEventListener("click", scanOnce);
+document.getElementById("btnAnalyze").addEventListener("click", analyzeAndShow);
+document.getElementById("chartSym").addEventListener("change", stopLive);
+document.getElementById("btnClearLog").addEventListener("click", ()=>{
+  if(!confirm("アラーム履歴を全て消去しますか？")) return;
+  ALARM_LOG = []; saveJSON(LS.LOG, ALARM_LOG); renderAlarmLog();
+});
+document.getElementById("btnCalcLot").addEventListener("click", calcLot);
+document.getElementById("btnFillFromAnalysis").addEventListener("click", fillFromAnalysis);
+document.getElementById("btnNotifPerm").addEventListener("click", async ()=>{
+  if(!("Notification" in window)){ showToast("通知", "このブラウザはWeb通知に対応していません（iOSはホーム画面追加後のPWAのみ対応）。画面内通知と音は利用できます。", "warn"); return; }
+  const p = await Notification.requestPermission();
+  showToast("通知", p === "granted" ? "ブラウザ通知を許可しました。" : "通知が許可されませんでした。画面内通知と音は利用できます。", p==="granted"?"buy":"warn");
+});
+// 設定の保存
+document.getElementById("btnDiag").addEventListener("click", async ()=>{
+  const box = document.getElementById("diagBox");
+  box.textContent = "診断中…（数秒かかります）";
+  const lines = [];
+  const tfetch = (url)=>{
+    const ac = new AbortController();
+    const t = setTimeout(()=>ac.abort("10秒応答なし"), 10000);
+    return fetch(url, { signal: ac.signal }).finally(()=>clearTimeout(t));
+  };
+  const test = async (label, fn)=>{
+    try{ const extra = await fn(); lines.push(`○ ${label}${extra ? "（" + extra + "）" : ""}`); }
+    catch(e){ lines.push(`× ${label} → ${(e && e.message || e)}`); }
+    box.textContent = lines.join("\n");
+  };
+  await test("GMOコイン直結（FX）", async ()=>{
+    const r = await tfetch("https://forex-api.coin.z.com/public/v1/ticker");
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    return "ブラウザから直接OK";
+  });
+  const base = backendBase();
+  await test("signal-deskサーバー", async ()=>{
+    if(!base) throw new Error("URLが未設定");
+    const r = await tfetch(base + "/api/ts/health");
+    const j = await r.json();
+    if(!j.ok) throw new Error("応答異常");
+    return "OK";
+  });
+  await test("Binance直結（仮想通貨・金）", async ()=>{
+    const r = await tfetch("https://api.binance.com/api/v3/ping");
+    if(!r.ok) throw new Error("HTTP " + r.status + "（回線から接続不可の可能性）");
+    return "OK";
+  });
+  lines.push("", "×があっても、サーバー中継で自動的に補われる構成です。全部×の場合のみ通信環境を確認してください。");
+  box.textContent = lines.join("\n");
+});
+document.getElementById("setDataMode").addEventListener("change", e=>{ SETTINGS.dataMode = e.target.value; saveJSON(LS.SET,SETTINGS); candleCache.clear(); refreshSymSelects(); renderDash(); });
+document.getElementById("setTdKey").addEventListener("change", e=>{ SETTINGS.tdKey = e.target.value.trim(); saveJSON(LS.SET,SETTINGS); candleCache.clear(); });
+document.getElementById("setBackend").addEventListener("change", e=>{ SETTINGS.backendUrl = e.target.value.trim(); saveJSON(LS.SET,SETTINGS); candleCache.clear(); renderDash(); });
+document.getElementById("setInterval").addEventListener("change", e=>{
+  SETTINGS.scanSec = Math.max(5, parseInt(e.target.value)||90); e.target.value = SETTINGS.scanSec;
+  saveJSON(LS.SET,SETTINGS);
+  if(scanning){ stopScan(); startScan(); }
+});
+document.getElementById("setSound").addEventListener("change", e=>{ SETTINGS.sound = e.target.checked; saveJSON(LS.SET,SETTINGS); });
+document.getElementById("setLine").addEventListener("change", e=>{ SETTINGS.lineNotify = e.target.checked; saveJSON(LS.SET,SETTINGS); });
+document.getElementById("btnLineTest").addEventListener("click", async ()=>{
+  const base = backendBase();
+  if(!base){ showToast("LINE通知", "設定のサーバーURLが空です。", "warn"); return; }
+  try{
+    const r = await fetch(base + "/api/ts/notify", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "テスト通知", body: "TradeScopeからのLINE通知テストです。この通知が届けば連携成功！" }) });
+    const j = await r.json().catch(()=>({}));
+    showToast("LINE通知", j.sent ? "送信しました。LINEを確認してください。" : "送信失敗：" + (j.error || r.status), j.sent ? "buy" : "warn");
+  }catch(e){ showToast("LINE通知", "送信失敗：" + (e.message || e), "warn"); }
+});
+// 銘柄追加・入出力
+document.getElementById("btnAddSym").addEventListener("click", ()=>{
+  const id = normalizeSymbol(document.getElementById("addId").value);
+  const name = document.getElementById("addName").value.trim();
+  const apiSymbol = document.getElementById("addApiSym").value.trim();
+  if(!id || !name || !apiSymbol){ showToast("銘柄追加", "内部シンボル・表示名・API用シンボルは必須です。", "warn"); return; }
+  if(getSym(id)){ showToast("銘柄追加", id + " は既に登録されています。", "warn"); return; }
+  const type = document.getElementById("addType").value;
+  SYMBOLS.push({ id, name, cat: document.getElementById("addCat").value.trim() || "その他",
+    type, provider: document.getElementById("addProv").value, apiSymbol,
+    enabled: true, digits: type==="fx" ? (id.endsWith("JPY")?3:5) : 2,
+    pip: type==="fx" ? (id.endsWith("JPY")?0.01:0.0001) : (type==="metal"?0.1:undefined),
+    quote: type==="fx"||type==="metal" ? id.slice(-3) : undefined,
+    contract: type==="metal" ? 100 : undefined });
+  saveJSON(LS.SYM, SYMBOLS); renderSymList(); refreshSymSelects(); renderDash();
+  showToast("銘柄追加", id + " を追加しました。", "buy");
+});
+document.getElementById("btnExportSym").addEventListener("click", ()=>{
+  document.getElementById("symJson").value = JSON.stringify(SYMBOLS, null, 1);
+  showToast("銘柄設定", "下の欄に書き出しました。コピーして保存できます。", "info");
+});
+document.getElementById("btnImportSym").addEventListener("click", ()=>{
+  try{
+    const arr = JSON.parse(document.getElementById("symJson").value);
+    if(!Array.isArray(arr) || !arr.every(s=>s.id && s.name)) throw new Error("形式が不正です");
+    SYMBOLS = arr; saveJSON(LS.SYM, SYMBOLS);
+    renderSymList(); refreshSymSelects(); renderDash();
+    showToast("銘柄設定", arr.length + "銘柄を読み込みました。", "buy");
+  }catch(e){ showToast("銘柄設定", "読み込み失敗：" + e.message, "warn"); }
+});
+document.getElementById("btnResetSym").addEventListener("click", ()=>{
+  if(!confirm("銘柄リストを初期状態に戻しますか？（追加した銘柄は消えます）")) return;
+  SYMBOLS = JSON.parse(JSON.stringify(DEFAULT_SYMBOLS));
+  saveJSON(LS.SYM, SYMBOLS); renderSymList(); refreshSymSelects(); renderDash();
+});
+
+// 資金管理の初期値
+document.getElementById("mmCap").value = SETTINGS.mmCap;
+document.getElementById("mmCur").value = SETTINGS.mmCur;
+document.getElementById("mmRisk").value = String(SETTINGS.mmRisk);
+
+// 時間足バー
+document.getElementById("tfBar").innerHTML = TF_LIST.map(tf=>
+  `<button data-tf="${tf}" class="${tf===curTF?"act":""}">${TF_LABEL[tf]}</button>`).join("");
+document.getElementById("tfBar").querySelectorAll("button").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    curTF = b.getAttribute("data-tf");
+    document.getElementById("tfBar").querySelectorAll("button").forEach(x=>x.classList.toggle("act", x===b));
+    if(lastAnalysisShown){ try{ drawChart(lastAnalysisShown, curTF); }catch(e){} }
+    syncLiveLastCandle();
+  });
+});
+
+refreshSymSelects();
+// 前回の表示状態を復元(iOSが勝手にリロードしても続きから)
+if(savedView && savedView.tf && TF_MS[savedView.tf]) curTF = savedView.tf;
+if(savedView && getSym(savedView.sym)) document.getElementById("chartSym").value = getSym(savedView.sym).id;
+renderSettings();
+renderDash();
+renderAlarmLog();
+// 予期しないエラーは画面に表示（アプリは止めない）
+window.addEventListener("error", (e)=>{
+  try{ showToast("エラー", (e && e.message) ? e.message : "不明なエラーが発生しましたが、動作は継続します。", "warn"); }catch(_){}
+});
+window.addEventListener("unhandledrejection", (e)=>{
+  try{ showToast("エラー", (e && e.reason && e.reason.message) ? e.reason.message : "通信エラーが発生しましたが、動作は継続します。", "warn"); }catch(_){}
+});
+// チャートライブラリを起動時に先読み
+loadChartLib().then(ok=>{
+  if(!ok) document.getElementById("chartMsg").textContent = "チャートライブラリを読み込めませんでした。判定・シナリオ・アラームは利用できます。再読み込みで再試行します。";
+});
+// 直近30分以内に見ていたチャートがあれば、自動でその画面と分析を再開
+if(savedView && savedView.sym && Date.now() - (savedView.t || 0) < 30 * 60e3 && getSym(savedView.sym)){
+  switchScr("chart");
+  setTimeout(analyzeAndShow, 600);
+}
+</script>
+</body></html>
