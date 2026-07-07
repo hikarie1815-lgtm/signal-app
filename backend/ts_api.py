@@ -326,3 +326,36 @@ async def ts_klines(symbol: str = "", tf: str = "15m", limit: int = 300):
                    "candles": candles})
     except Exception as e:  # noqa: BLE001
         return ok({"error": str(e), "symbol": sym}, status=502)
+
+
+# ---------------- LINE通知（signal-deskのnotifierを再利用） ----------------
+from pydantic import BaseModel
+
+
+class NotifyIn(BaseModel):
+    title: str = ""
+    body: str = ""
+
+
+_notify_hist: list = []
+
+
+@router.post("/api/ts/notify")
+async def ts_notify(n: NotifyIn):
+    """TradeScopeのアラームをLINEに転送する。
+    乱用防止のため 1分5件・1日200件 まで。"""
+    now = time.time()
+    _notify_hist[:] = [t for t in _notify_hist if now - t < 86400]
+    recent = [t for t in _notify_hist if now - t < 60]
+    if len(recent) >= 5:
+        return ok({"sent": False, "error": "1分あたりの通知上限（5件）"}, 429)
+    if len(_notify_hist) >= 200:
+        return ok({"sent": False, "error": "1日あたりの通知上限（200件）"}, 429)
+    _notify_hist.append(now)
+    try:
+        import notifier
+        text = (f"【TradeScope】{n.title}\n{n.body}")[:900]
+        await notifier.send_line(text)
+        return ok({"sent": True})
+    except Exception as e:  # noqa: BLE001
+        return ok({"sent": False, "error": str(e)}, 502)
