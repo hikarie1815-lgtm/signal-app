@@ -121,6 +121,8 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(analysis_loop())
     asyncio.create_task(broadcast_loop())
     asyncio.create_task(stats_loop())
+    import ts_watch
+    asyncio.create_task(ts_watch.watch_loop())  # TradeScope 24時間監視
     log.info("起動完了 → http://localhost:8000")
     yield
 
