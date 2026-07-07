@@ -113,6 +113,17 @@ async def _get(url, params=None):
         return r.json()
 
 
+async def _gmo_get_data(params):
+    """GMO klines取得。404はその日付のデータ未生成（深夜・休日）を意味するので空扱い。"""
+    try:
+        j = await _get(f"{GMO_BASE}/v1/klines", params)
+        return j.get("data") or []
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return []
+        raise
+
+
 # ---------------- GMO 為替 ----------------
 async def gmo_klines(gsym: str, tf: str, limit: int):
     iv = TF_GMO[tf]
@@ -124,10 +135,8 @@ async def gmo_klines(gsym: str, tf: str, limit: int):
             key = f"gmo|{gsym}|{iv}|{y}"
             data = cget(key)
             if data is None:
-                j = await _get(f"{GMO_BASE}/v1/klines",
-                               {"symbol": gsym, "priceType": "BID",
-                                "interval": iv, "date": str(y)})
-                data = j.get("data") or []
+                data = await _gmo_get_data({"symbol": gsym, "priceType": "BID",
+                                            "interval": iv, "date": str(y)})
                 cset(key, data, TTL_GMO[tf] if y == year else None)
             rows += data
     else:
@@ -141,12 +150,10 @@ async def gmo_klines(gsym: str, tf: str, limit: int):
             key = f"gmo|{gsym}|{iv}|{ds}"
             data = cget(key)
             if data is None:
-                j = await _get(f"{GMO_BASE}/v1/klines",
-                               {"symbol": gsym, "priceType": "BID",
-                                "interval": iv, "date": ds})
-                data = j.get("data") or []
-                # 当日は短期キャッシュ、過去日は確定データなので無期限
-                cset(key, data, TTL_GMO[tf] if i == 0 else None)
+                data = await _gmo_get_data({"symbol": gsym, "priceType": "BID",
+                                            "interval": iv, "date": ds})
+                # 当日と直近日は短期キャッシュ、それ以前の確定データは無期限
+                cset(key, data, TTL_GMO[tf] if i <= 1 else None)
             chunks.append(data)
             total += len(data)
             d -= timedelta(days=1)
