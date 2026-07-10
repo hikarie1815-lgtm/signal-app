@@ -103,8 +103,9 @@ signal-app/
 ├── start_windows.bat      ← Windowsはこれをダブルクリック
 ├── start_mac.sh           ← Mac用
 ├── requirements.txt
+├── render.yaml            ← Render(クラウド)デプロイ設定
 ├── .env.example           ← .env にコピーしてキーを設定
-├── data/                  ← SQLite DB・バックテストCSVが保存される
+├── data/                  ← SQLite DB・バックテストCSVが保存される(初回起動時に自動作成)
 └── backend/
     ├── main.py            ← サーバー本体(これを起動)
     ├── config.py          ← 銘柄・しきい値・更新間隔の設定
@@ -115,7 +116,11 @@ signal-app/
     ├── risk.py            ← 1%ルール・ロット自動計算
     ├── notifier.py        ← Discord/LINE/ブラウザ通知
     ├── database.py        ← SQLite(履歴・統計・損益記録)
-    └── static/index.html  ← スマホ対応ダッシュボード
+    ├── static/index.html  ← スマホ対応ダッシュボード
+    └── tradescope/        ← TradeScope(裁量トレード支援アドオン)
+        ├── api.py         ← データ配信API(GMO為替・PAXG金の中継) /app で本体を配信
+        ├── watch.py       ← 24時間監視エンジン(LINE通知)
+        └── static/tradescope.html ← ブラウザ版TradeScope本体
 ```
 
 ## 7. AIスコアの仕組み(0〜100点)

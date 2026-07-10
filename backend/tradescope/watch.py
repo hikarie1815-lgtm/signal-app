@@ -1,5 +1,5 @@
 """
-ts_watch.py — TradeScope 24時間監視エンジン（signal-desk常駐）
+tradescope/watch.py — TradeScope 24時間監視エンジン（signal-desk常駐）
 
 役割:
   サーバー上で数分おきに監視銘柄をマルチタイムフレーム分析し、
@@ -311,9 +311,9 @@ async def maybe_notify(sym_id, name, kind, r):
         await _line(f"{name}({sym_id}) だましブレイクの動きを検出。ブレイク方向への飛び乗り注意。")
 
 
-# ================= データ取得（ts_apiを再利用） =================
+# ================= データ取得（tradescope.apiを再利用） =================
 async def fetch_tf(sym_id, tf, limit):
-    import ts_api
+    from . import api as ts_api
     if sym_id in ts_api.GMO_FX:
         return await ts_api.gmo_klines(ts_api.GMO_FX[sym_id], tf, limit)
     if sym_id in ts_api.BINANCE_MAP:

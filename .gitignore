@@ -1,0 +1,15 @@
+# 秘密情報（APIキー）
+.env
+
+# 実行時データ（SQLite DB・バックテストCSV）
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db

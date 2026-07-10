@@ -121,7 +121,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(analysis_loop())
     asyncio.create_task(broadcast_loop())
     asyncio.create_task(stats_loop())
-    import ts_watch
+    from tradescope import watch as ts_watch
     ts_watch.start()  # TradeScope 24時間監視（タスク参照を保持）
     log.info("起動完了 → http://localhost:8000")
     yield
@@ -130,7 +130,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="シグナルダッシュボード", lifespan=lifespan)
 
 # TradeScope用データ配信API（GMOコイン為替・PAXG金価格の中継）
-import ts_api
+from tradescope import api as ts_api
 app.include_router(ts_api.router)
 STATIC = Path(__file__).parent / "static"
 

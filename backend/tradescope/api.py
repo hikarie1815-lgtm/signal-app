@@ -1,5 +1,5 @@
 """
-ts_api.py — TradeScope用データ配信API（signal-desk アドオン）
+tradescope/api.py — TradeScope用データ配信API（signal-desk アドオン）
 
 役割:
   ブラウザ版TradeScopeに、FX・金のローソク足とリアルタイム価格を配信する。
@@ -10,7 +10,7 @@ ts_api.py — TradeScope用データ配信API（signal-desk アドオン）
   外部APIの消費はごく少量で済む。
 
 組み込み方（backend/main.py に2行追加するだけ）:
-    import ts_api
+    from tradescope import api as ts_api
     app.include_router(ts_api.router)
 
 エンドポイント:
@@ -289,7 +289,7 @@ async def ts_options(rest: str):
 async def ts_watch_status():
     """24時間監視の状態確認。"""
     try:
-        import ts_watch
+        from . import watch as ts_watch
         return ok({"watching": ts_watch.STATE["started"],
                    "boot_time": ts_watch.STATE.get("boot_time"),
                    "heartbeat": ts_watch.STATE.get("heartbeat"),
