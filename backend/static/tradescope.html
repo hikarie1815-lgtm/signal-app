@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>TradeScope — 裁量トレード支援ターミナル</title>
+<link rel="apple-touch-icon" href="/app/icon.png">
+<link rel="icon" type="image/png" href="/app/icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TradeScope">
 <style>
 :root{
   --bg:#0a0e15; --panel:#111827; --panel2:#171f2e; --line:#232d40;
@@ -106,7 +111,7 @@ details.sym-add summary{cursor:pointer;color:var(--info);font-size:13px}
 </head>
 <body>
 <div class="hdr">
-  <div class="logo"><b>Trade</b>Scope <span style="font-size:10px;color:var(--sub);font-family:var(--mono)">v2.0</span></div>
+  <div class="logo"><b>Trade</b>Scope <span style="font-size:10px;color:var(--sub);font-family:var(--mono)">v2.1</span></div>
   <div class="status"><span id="scanDot" class="dot off"></span><span id="scanStat">停止中</span></div>
 </div>
 <div class="toasts" id="toasts"></div>
@@ -146,6 +151,10 @@ details.sym-add summary{cursor:pointer;color:var(--info);font-size:13px}
     </div>
     <p class="muted" id="chartMsg" style="margin-top:4px"></p>
   </div>
+  <div class="card" id="newsCard" style="display:none">
+    <h3>経済指標（この銘柄に関係するもの）</h3>
+    <div id="newsList" style="font-size:13px"></div>
+  </div>
   <div class="card" id="scoreCard" style="display:none">
     <div class="row" style="align-items:center;gap:16px">
       <div class="stamp sc-D" id="bigStamp">D</div>
@@ -165,6 +174,11 @@ details.sym-add summary{cursor:pointer;color:var(--info);font-size:13px}
 
 <!-- アラーム履歴 -->
 <section class="scr" id="scr-alog">
+  <div class="card">
+    <h3>判定の成績（サーバー自動採点）</h3>
+    <p class="muted">S/A/B判定の後、利確ラインと損切りラインのどちらに先に到達したかをサーバーが自動集計します。データが貯まるほど「どの判定・どの銘柄が本当に勝てるか」が見えてきます。</p>
+    <div id="statsBox" style="font-size:13px;margin-top:8px">読み込み中…</div>
+  </div>
   <div class="card">
     <div class="row" style="justify-content:space-between">
       <h3 style="margin:0">アラーム履歴</h3>
@@ -1351,6 +1365,49 @@ function startLive(sym){
   }, reMs);
 }
 
+async function fetchNews(symId){
+  const base = backendBase();
+  if(!base) return null;
+  try{
+    const r = await fetch(`${base}/api/ts/news?symbol=${symId}`);
+    const j = await r.json();
+    return (j && !j.error) ? j : null;
+  }catch(e){ return null; }
+}
+function renderNews(news, res){
+  const card = document.getElementById("newsCard"), list = document.getElementById("newsList");
+  if(!news || (!news.upcoming.length && !news.recent.length)){ card.style.display = "none"; return null; }
+  card.style.display = "block";
+  const rows = [];
+  let dangerTitle = null;
+  news.upcoming.forEach(e=>{
+    const danger = e.impact === "High" && e.in_min <= 45;
+    if(danger && !dangerTitle) dangerTitle = e.title;
+    rows.push(`<div class="kv"><span>${danger ? "⚠ " : "⏰ "}${e.in_min}分後【${e.cur}】${escapeH(e.title)}</span><b class="${danger ? "dir-sell" : ""}">${e.impact === "High" ? "重要" : "中"}</b></div>`);
+  });
+  news.recent.forEach(e=>{
+    const col = e.bias > 0 ? "dir-buy" : e.bias < 0 ? "dir-sell" : "dir-none";
+    rows.push(`<div class="kv"><span>📊 ${e.ago_min}分前【${e.cur}】${escapeH(e.title)}<br><span class="muted">結果 ${escapeH(e.actual)} / 予想 ${escapeH(e.forecast)}</span></span><b class="${col}">${escapeH(e.bias_text)}</b></div>`);
+  });
+  list.innerHTML = rows.join("");
+  return dangerTitle;
+}
+async function loadStats(){
+  const box = document.getElementById("statsBox");
+  const base = backendBase();
+  if(!base){ box.textContent = "サーバー未接続のため表示できません。"; return; }
+  try{
+    const r = await fetch(base + "/api/ts/stats");
+    const j = await r.json();
+    if(j.error) throw new Error(j.error);
+    if(!j.count){ box.textContent = "まだ採点データがありません。S/A/B判定が出ると自動的に記録されます。"; return; }
+    const row = (k, b)=>`<div class="kv"><span>${k}</span><b>${b.hit_rate === null ? "-" : b.hit_rate + "%"}（勝${b.win}/負${b.loss}${b.open ? "/進行中" + b.open : ""}）</b></div>`;
+    let html = `<div class="kv"><span><b>全体</b></span><b>${j.total.hit_rate === null ? "-" : j.total.hit_rate + "%"}（${j.count}件）</b></div>`;
+    html += Object.entries(j.by_grade).sort().map(([k,b])=>row("判定" + k, b)).join("");
+    html += Object.entries(j.by_symbol).map(([k,b])=>row(k, b)).join("");
+    box.innerHTML = html;
+  }catch(e){ box.textContent = "取得エラー: " + (e.message || e); }
+}
 async function analyzeAndShow(){
   const id = document.getElementById("chartSym").value;
   const sym = getSym(id);
@@ -1360,7 +1417,13 @@ async function analyzeAndShow(){
   document.getElementById("btnAnalyze").disabled = true;
   loadChartLib(); // 裏で読み込み開始（未読込の場合）
   try{
-    const res = await analyzeSymbol(sym);
+    const [res, news] = await Promise.all([analyzeSymbol(sym), fetchNews(sym.id)]);
+    const dangerTitle = renderNews(news, res);
+    if(dangerTitle && (res.grade === "S" || res.grade === "A" || res.grade === "B")){
+      res.grade = "C";
+      res.reasons.unshift({ txt: `⚠ まもなく重要指標「${dangerTitle}」。通過するまで新規エントリーは危険`, kind: "dng" });
+      res.scenario = `【指標待ち】まもなく重要指標「${dangerTitle}」の発表。\n発表前後は値が飛び、損切りが機能しないことがあります。\n通過して15分足が確定してから判断し直すのが正解です。\n\n` + res.scenario;
+    }
     lastResults.set(sym.id, res);
     lastAnalysisShown = res;
     renderScoreCard(res);   // 判定・シナリオを先に必ず表示
@@ -1562,7 +1625,7 @@ function switchScr(name){
   document.getElementById("scr-"+name).classList.add("act");
   document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("act", b.getAttribute("data-scr")===name));
   if(name === "chart" && !chart) loadChartLib().then(ok=>{ if(ok) initChart(); });
-  if(name === "alog") renderAlarmLog();
+  if(name === "alog"){ renderAlarmLog(); loadStats(); }
 }
 document.querySelectorAll(".tabs button").forEach(b=>b.addEventListener("click", ()=>switchScr(b.getAttribute("data-scr"))));
 
