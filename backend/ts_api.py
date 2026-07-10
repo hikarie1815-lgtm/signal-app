@@ -302,6 +302,47 @@ async def ts_watch_status():
         return ok({"watching": False, "error": str(e)}, 502)
 
 
+@router.get("/api/ts/news")
+async def ts_news_api(symbol: str = ""):
+    """経済指標: 今後2時間の予定と直近90分の結果（銘柄指定で絞り込み）。"""
+    try:
+        import ts_news
+        events = await ts_news.fetch_events()
+        curs = ts_news.currencies_of(symbol) if symbol else             ["USD", "JPY", "EUR", "GBP", "AUD", "NZD", "CAD", "CHF"]
+        up = [{"title": e["title"], "cur": e["cur"], "in_min": e["in_min"],
+               "impact": e["impact"], "forecast": e["forecast"]}
+              for e in ts_news.upcoming(events, curs, within_min=120,
+                                        min_impact="Medium")][:8]
+        rc = [{"title": e["title"], "cur": e["cur"], "ago_min": e["ago_min"],
+               "actual": e["actual"], "forecast": e["forecast"],
+               "bias": e["bias"], "bias_text": e["bias_text"]}
+              for e in ts_news.recent_results(events, curs, since_min=120,
+                                              min_impact="Medium")][:8]
+        return ok({"upcoming": up, "recent": rc})
+    except Exception as e:  # noqa: BLE001
+        return ok({"error": str(e)}, 502)
+
+
+@router.get("/api/ts/stats")
+async def ts_stats():
+    """シグナル自動採点の集計（判定別・銘柄別の勝率）。"""
+    try:
+        import ts_watch
+        return ok(ts_watch.stats_summary())
+    except Exception as e:  # noqa: BLE001
+        return ok({"error": str(e)}, 502)
+
+
+@router.get("/app/icon.png")
+async def ts_icon():
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    p = Path(__file__).parent / "static" / "ts-icon.png"
+    if not p.exists():
+        return ok({"error": "icon未配置"}, 404)
+    return FileResponse(p, media_type="image/png")
+
+
 @router.get("/api/ts/health")
 async def ts_health():
     return ok({
