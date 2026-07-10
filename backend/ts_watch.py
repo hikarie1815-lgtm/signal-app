@@ -39,7 +39,88 @@ COOLDOWN = {"entry": 90 * 60, "near": 3 * 3600, "align": 4 * 3600, "spike": 3600
 
 STATE = {"last_run": None, "heartbeat": None, "boot_time": None,
          "results": {}, "sent_today": 0,
-         "sent_date": "", "errors": {}, "started": False}
+         "sent_date": "", "errors": {}, "started": False,
+         "news_upcoming": [], "news_recent": []}
+
+# ---- シグナル成績の記録（自動採点） ----
+import json as _json
+from pathlib import Path as _Path
+SIG_FILE = _Path(__file__).parent / "ts_signals.json"
+SIGNALS: list = []
+try:
+    if SIG_FILE.exists():
+        SIGNALS = _json.loads(SIG_FILE.read_text())
+except Exception:  # noqa: BLE001
+    SIGNALS = []
+
+
+def _save_signals():
+    try:
+        SIG_FILE.write_text(_json.dumps(SIGNALS[-500:], ensure_ascii=False))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def record_signal(sym_id, name, grade, direction, price, plan):
+    SIGNALS.append({
+        "t": time.time(), "sym": sym_id, "name": name, "grade": grade,
+        "dir": direction, "entry": price, "sl": plan["sl"], "tp": plan["tp"],
+        "status": "open"})
+    _save_signals()
+
+
+async def evaluate_signals():
+    """未決着シグナルを5分足で自動採点。SL先タッチ=負け / TP先タッチ=勝ち / 24時間で期限切れ。"""
+    now = time.time()
+    for sig in SIGNALS:
+        if sig["status"] != "open":
+            continue
+        try:
+            if now - sig["t"] > 24 * 3600:
+                sig["status"] = "expired"
+                continue
+            cs = await fetch_tf(sig["sym"], "5m", 300)
+            hit = None
+            for c in cs:
+                if c["time"] <= sig["t"]:
+                    continue
+                if sig["dir"] == "buy":
+                    if c["low"] <= sig["sl"]:
+                        hit = "loss"
+                        break
+                    if c["high"] >= sig["tp"]:
+                        hit = "win"
+                        break
+                else:
+                    if c["high"] >= sig["sl"]:
+                        hit = "loss"
+                        break
+                    if c["low"] <= sig["tp"]:
+                        hit = "win"
+                        break
+            if hit:
+                sig["status"] = hit
+        except Exception:  # noqa: BLE001
+            continue
+    _save_signals()
+
+
+def stats_summary():
+    out = {"by_grade": {}, "by_symbol": {}, "total": {"win": 0, "loss": 0, "open": 0, "expired": 0}}
+    for sig in SIGNALS:
+        st = sig["status"]
+        for key, bucket in ((sig["grade"], out["by_grade"]), (sig["sym"], out["by_symbol"])):
+            b = bucket.setdefault(key, {"win": 0, "loss": 0, "open": 0, "expired": 0})
+            b[st] = b.get(st, 0) + 1
+        out["total"][st] = out["total"].get(st, 0) + 1
+    for bucket in (out["by_grade"], out["by_symbol"]):
+        for k, b in bucket.items():
+            done = b["win"] + b["loss"]
+            b["hit_rate"] = round(b["win"] / done * 100, 1) if done else None
+    done = out["total"]["win"] + out["total"]["loss"]
+    out["total"]["hit_rate"] = round(out["total"]["win"] / done * 100, 1) if done else None
+    out["count"] = len(SIGNALS)
+    return out
 _last_sent: dict = {}
 _task = None  # タスクへの強い参照（GC回収防止）
 
@@ -285,7 +366,10 @@ async def _line(text):
 async def maybe_notify(sym_id, name, kind, r):
     f = r["fmt"]
     dir_j = "買い" if r["dir"] == "buy" else "売り"
+    if r.get("news_wait"):
+        return  # 重要指標の直前直後はエントリー系通知を止める
     if r["grade"] in ("S", "A") and r["dir"] != "none" and _cool_ok(sym_id, "entry"):
+        record_signal(sym_id, name, r["grade"], r["dir"], r["price"], r["plan"])
         p = r["plan"]
         body = (f"{name}({sym_id}) {dir_j}候補 判定{r['grade']}\n"
                 f"現在値 {f(r['price'])}\n"
@@ -295,6 +379,7 @@ async def maybe_notify(sym_id, name, kind, r):
                 f"※飛び乗らず引き付けて。最終判断はご自身で。")
         await _line(body)
     if r["grade"] == "B" and r["dir"] != "none" and _cool_ok(sym_id, "near"):
+        record_signal(sym_id, name, "B", r["dir"], r["price"], r["plan"])
         p = r["plan"]
         body = (f"{name}({sym_id}) {dir_j}チャンス接近 判定B\n"
                 f"現在値 {f(r['price'])}\n"
@@ -334,6 +419,63 @@ async def analyze_symbol(sym_id, name, kind, digits):
 
 
 # ================= 常駐ループ =================
+_news_warned: set = set()
+_news_resulted: set = set()
+
+
+async def process_news():
+    """事前警告（発表35分前）と結果速報（発表後20分以内）をLINEへ。"""
+    import ts_news
+    all_cur = set()
+    for sym_id, _, _, _ in WATCH:
+        all_cur.update(ts_news.currencies_of(sym_id))
+    # 直近に指標がある時はカレンダーを高頻度更新（結果値を早く拾う）
+    events = await ts_news.fetch_events()
+    near = ts_news.upcoming(events, all_cur, within_min=10) or         ts_news.recent_results(events, all_cur, since_min=10)
+    if near:
+        events = await ts_news.fetch_events(force=True)
+    # 画面用の要約をSTATEへ
+    STATE["news_upcoming"] = [
+        {"title": e["title"], "cur": e["cur"], "in_min": e["in_min"], "impact": e["impact"]}
+        for e in ts_news.upcoming(events, all_cur, within_min=120)][:6]
+    STATE["news_recent"] = [
+        {"title": e["title"], "cur": e["cur"], "ago_min": e["ago_min"],
+         "actual": e["actual"], "forecast": e["forecast"], "bias_text": e["bias_text"]}
+        for e in ts_news.recent_results(events, all_cur, since_min=90)][:6]
+    # 事前警告
+    for e in ts_news.upcoming(events, all_cur, within_min=35):
+        if e["id"] in _news_warned:
+            continue
+        _news_warned.add(e["id"])
+        rel = [n for sid, n, k, _ in WATCH
+               if e["cur"] in ts_news.currencies_of(sid) and k != "crypto"]
+        if _cool_ok("NEWS", "spike"):
+            await _line(f"⏰ {e['in_min']}分後に重要指標【{e['cur']}】{e['title']}\n"
+                        f"関連: {'・'.join(rel[:4])}\n"
+                        f"発表前後は値が飛びます。新規エントリーは通過後に。")
+    # 結果速報
+    for e in ts_news.recent_results(events, all_cur, since_min=20):
+        if e["id"] in _news_resulted:
+            continue
+        _news_resulted.add(e["id"])
+        move = ""
+        try:
+            fx = next((sid for sid, _, k, _ in WATCH
+                       if k == "fx" and e["cur"] in ts_news.currencies_of(sid)), None)
+            if fx and e["bias"] != 0:
+                cs = await fetch_tf(fx, "5m", 6)
+                drift = cs[-1]["close"] - cs[-3]["close"]
+                base_up = fx.startswith(e["cur"])  # 通貨が基軸なら買い材料=上
+                expect_up = (e["bias"] > 0) == base_up
+                agree = (drift > 0) == expect_up
+                move = f"\n{fx}の値動きは結果と{'一致（順張り検討可）' if agree else '逆行（手出し無用・様子見）'}"
+        except Exception:  # noqa: BLE001
+            pass
+        await _line(f"📊 指標結果【{e['cur']}】{e['title']}\n"
+                    f"結果 {e['actual']} / 予想 {e['forecast']} → {e['bias_text']}{move}\n"
+                    f"※初動は乱高下しやすい。15分足の確定を待つのが安全。")
+
+
 async def watch_loop():
     if STATE["started"]:
         return
@@ -341,18 +483,31 @@ async def watch_loop():
     STATE["boot_time"] = datetime.now(JST).isoformat(timespec="seconds")
     log.info("TradeScope 24時間監視を開始（%d銘柄・%d秒周期）", len(WATCH), INTERVAL_SEC)
     await asyncio.sleep(5)
+    import ts_news
+    cycle = 0
     while True:
         jst = datetime.now(JST)
         STATE["heartbeat"] = jst.isoformat(timespec="seconds")
         weekend = jst.weekday() >= 5
+        try:
+            await process_news()
+        except Exception as e:  # noqa: BLE001
+            log.warning("指標処理エラー: %s", e)
+        events = await ts_news.fetch_events()
         for sym_id, name, kind, digits in WATCH:
             if weekend and kind in ("fx", "metal"):
                 continue
             try:
                 r = await analyze_symbol(sym_id, name, kind, digits)
+                # 重要指標が45分以内なら判定を強制的に「待ち」へ
+                ups = ts_news.upcoming(events, ts_news.currencies_of(sym_id), within_min=45)
+                if ups and r["grade"] in ("S", "A", "B"):
+                    r["news_wait"] = ups[0]["title"]
+                    r["grade"] = "C"
                 STATE["results"][sym_id] = {
                     "grade": r["grade"], "dir": r["dir"],
                     "price": round(r["price"], digits),
+                    "news_wait": r.get("news_wait"),
                     "time": jst.isoformat(timespec="seconds")}
                 STATE["errors"].pop(sym_id, None)
                 await maybe_notify(sym_id, name, kind, r)
@@ -360,5 +515,11 @@ async def watch_loop():
                 STATE["errors"][sym_id] = str(e)[:200]
                 log.warning("監視エラー %s: %s", sym_id, e)
             await asyncio.sleep(2)
+        cycle += 1
+        if cycle % 2 == 0:  # 6分ごとにシグナル採点
+            try:
+                await evaluate_signals()
+            except Exception:  # noqa: BLE001
+                pass
         STATE["last_run"] = datetime.now(JST).isoformat(timespec="seconds")
         await asyncio.sleep(INTERVAL_SEC)
