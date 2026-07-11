@@ -35,7 +35,7 @@ WATCH = [
 
 INTERVAL_SEC = 180          # 監視周期
 DAILY_CAP = 80              # 1日の通知上限
-COOLDOWN = {"entry": 90 * 60, "near": 3 * 3600, "align": 4 * 3600, "spike": 3600, "fake": 3600}
+COOLDOWN = {"entry": 120 * 60, "near": 3 * 3600, "align": 4 * 3600, "spike": 3600, "fake": 3600}
 
 STATE = {"last_run": None, "heartbeat": None, "boot_time": None,
          "results": {}, "sent_today": 0,
@@ -358,7 +358,29 @@ def _cool_ok(sym, typ):
     return True
 
 
-async def _line(text):
+MONTHLY_LINE_CAP = 190  # LINE無料枠200通を超えないための予算
+_month_budget = {"month": "", "count": 0}
+
+
+def _line_budget_ok(priority="normal"):
+    """月間予算チェック。残りわずかならS判定など高優先のみ通す。"""
+    m = datetime.now(JST).strftime("%Y%m")
+    if _month_budget["month"] != m:
+        _month_budget["month"] = m
+        _month_budget["count"] = 0
+    used = _month_budget["count"]
+    if used >= MONTHLY_LINE_CAP:
+        return False
+    if used >= MONTHLY_LINE_CAP - 30 and priority != "high":
+        return False  # 残り30通は重要通知専用に温存
+    _month_budget["count"] += 1
+    STATE["line_sent_month"] = _month_budget["count"]
+    return True
+
+
+async def _line(text, priority="normal"):
+    if not _line_budget_ok(priority):
+        return
     import notifier
     await notifier.send_line("【TradeScope監視】" + text)
 
@@ -377,23 +399,11 @@ async def maybe_notify(sym_id, name, kind, r):
                 f"利確{f(p['tp'])} (RR 1:{p['rr']:.1f})\n"
                 f"根拠: {'・'.join(r['reasons'])}\n"
                 f"※飛び乗らず引き付けて。最終判断はご自身で。")
-        await _line(body)
+        await _line(body, priority="high")
     if r["grade"] == "B" and r["dir"] != "none" and _cool_ok(sym_id, "near"):
         record_signal(sym_id, name, "B", r["dir"], r["price"], r["plan"])
-        p = r["plan"]
-        body = (f"{name}({sym_id}) {dir_j}チャンス接近 判定B\n"
-                f"現在値 {f(r['price'])}\n"
-                f"条件が揃いつつあります。目安: エントリー{f(p['entry'])} / "
-                f"損切り{f(p['sl'])} / 利確{f(p['tp'])}\n"
-                f"※まだ様子見レベル。引き付けてから。")
-        await _line(body)
-    if r["aligned"] and _cool_ok(sym_id, "align"):
-        t = "上昇" if r["dir"] == "buy" else "下降"
-        await _line(f"{name}({sym_id}) 日足〜5分足まで全時間足が{t}方向で一致。現在値 {f(r['price'])}")
-    if r["spike"] and _cool_ok(sym_id, "spike"):
-        await _line(f"{name}({sym_id}) 急変動発生。値が飛びやすい状態です。現在値 {f(r['price'])}")
-    if r["fake"] and _cool_ok(sym_id, "fake"):
-        await _line(f"{name}({sym_id}) だましブレイクの動きを検出。ブレイク方向への飛び乗り注意。")
+        # B判定は記録のみ（LINE無料枠の節約。成績集計には反映される）
+    # 方向一致・急変動・だましはLINE送信せず（無料枠節約。アプリ内通知は従来どおり）
 
 
 # ================= データ取得（ts_apiを再利用） =================
