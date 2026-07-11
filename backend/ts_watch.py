@@ -378,13 +378,32 @@ def _line_budget_ok(priority="normal"):
     return True
 
 
+import os as _os
+NTFY_TOPIC = _os.environ.get("NTFY_TOPIC", "")
+
+
+async def _ntfy(text):
+    """ntfy.sh経由のプッシュ通知（NTFY_TOPIC未設定なら黙ってスキップ）。"""
+    if not NTFY_TOPIC:
+        return
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10) as c:
+            await c.post(f"https://ntfy.sh/{NTFY_TOPIC}",
+                         content=text.encode("utf-8"),
+                         headers={"Title": "TradeScope", "Priority": "default"})
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _discord(text):
-    """Discordは無制限なので全通知を送る（Webhook未設定なら黙ってスキップ）。"""
+    """無制限チャンネル（Discord + ntfy）へ全通知を送る。未設定分はスキップ。"""
     try:
         import notifier
         await notifier.send_discord("【TradeScope監視】" + text)
     except Exception:  # noqa: BLE001
         pass
+    await _ntfy(text)
 
 
 async def _line(text, priority="normal"):
