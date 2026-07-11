@@ -429,9 +429,20 @@ async def ts_notify(n: NotifyIn):
         return ok({"sent": False, "error": "1日あたりの通知上限（200件）"}, 429)
     _notify_hist.append(now)
     try:
-        import notifier
         text = (f"【TradeScope】{n.title}\n{n.body}")[:900]
-        await notifier.send_line(text)
-        return ok({"sent": True})
+        sent_to = []
+        try:
+            import ts_watch
+            await ts_watch._discord(f"{n.title}\n{n.body}")
+            sent_to.append("discord/ntfy")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            import notifier
+            await notifier.send_line(text)
+            sent_to.append("line")
+        except Exception:  # noqa: BLE001
+            pass
+        return ok({"sent": True, "channels": sent_to})
     except Exception as e:  # noqa: BLE001
         return ok({"sent": False, "error": str(e)}, 502)
