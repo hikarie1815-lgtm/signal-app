@@ -378,7 +378,18 @@ def _line_budget_ok(priority="normal"):
     return True
 
 
+async def _discord(text):
+    """Discordは無制限なので全通知を送る（Webhook未設定なら黙ってスキップ）。"""
+    try:
+        import notifier
+        await notifier.send_discord("【TradeScope監視】" + text)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _line(text, priority="normal"):
+    """DiscordとLINEの二段配信。LINEは無料枠の予算内でのみ送る。"""
+    await _discord(text)
     if not _line_budget_ok(priority):
         return
     import notifier
@@ -402,8 +413,18 @@ async def maybe_notify(sym_id, name, kind, r):
         await _line(body, priority="high")
     if r["grade"] == "B" and r["dir"] != "none" and _cool_ok(sym_id, "near"):
         record_signal(sym_id, name, "B", r["dir"], r["price"], r["plan"])
-        # B判定は記録のみ（LINE無料枠の節約。成績集計には反映される）
-    # 方向一致・急変動・だましはLINE送信せず（無料枠節約。アプリ内通知は従来どおり）
+        p = r["plan"]
+        await _discord(f"{name}({sym_id}) {dir_j}チャンス接近 判定B\n"
+                       f"現在値 {f(r['price'])}\n"
+                       f"目安: エントリー{f(p['entry'])} / 損切り{f(p['sl'])} / 利確{f(p['tp'])}\n"
+                       f"※まだ様子見レベル。引き付けてから。")
+    if r["aligned"] and _cool_ok(sym_id, "align"):
+        t = "上昇" if r["dir"] == "buy" else "下降"
+        await _discord(f"{name}({sym_id}) 日足〜5分足まで全時間足が{t}方向で一致。現在値 {f(r['price'])}")
+    if r["spike"] and _cool_ok(sym_id, "spike"):
+        await _discord(f"{name}({sym_id}) 急変動発生。値が飛びやすい状態です。現在値 {f(r['price'])}")
+    if r["fake"] and _cool_ok(sym_id, "fake"):
+        await _discord(f"{name}({sym_id}) だましブレイクの動きを検出。飛び乗り注意。")
 
 
 # ================= データ取得（ts_apiを再利用） =================
