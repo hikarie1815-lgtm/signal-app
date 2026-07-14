@@ -302,6 +302,46 @@ async def ts_watch_status():
         return ok({"watching": False, "error": str(e)}, 502)
 
 
+EA_KEY = os.environ.get("EA_KEY", "")
+
+
+@router.get("/api/ts/ea/orders")
+async def ea_orders(key: str = ""):
+    """MT5 EAが10秒ごとに取りに来る注文指示。
+    形式: 1行1注文 `id|SYMBOL|BUY/SELL|SL|TP|GRADE`（テキスト）。
+    一度配信した注文は再送しない。発生から10分超の古い注文は破棄。"""
+    from fastapi.responses import PlainTextResponse
+    if not EA_KEY or key != EA_KEY:
+        return PlainTextResponse("ERR:unauthorized", status_code=401)
+    try:
+        import ts_watch
+        now = time.time()
+        lines = []
+        for o in ts_watch.EA_QUEUE:
+            if o["delivered"] or now - o["t"] > 600:
+                continue
+            o["delivered"] = True
+            d = "BUY" if o["dir"] == "buy" else "SELL"
+            lines.append(f"{o['id']}|{o['sym']}|{d}|{o['sl']:.5f}|{o['tp']:.5f}|{o['grade']}")
+        return PlainTextResponse("\n".join(lines) if lines else "NONE",
+                                 headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:  # noqa: BLE001
+        return PlainTextResponse("ERR:" + str(e)[:100], status_code=502)
+
+
+@router.get("/api/ts/ea/status")
+async def ea_status(key: str = ""):
+    """EA連携の状態確認（直近キューの中身）。"""
+    if not EA_KEY or key != EA_KEY:
+        return ok({"error": "unauthorized"}, 401)
+    try:
+        import ts_watch
+        return ok({"queue": [
+            {k: v for k, v in o.items()} for o in ts_watch.EA_QUEUE[-20:]]})
+    except Exception as e:  # noqa: BLE001
+        return ok({"error": str(e)}, 502)
+
+
 @router.get("/api/ts/news")
 async def ts_news_api(symbol: str = ""):
     """経済指標: 今後2時間の予定と直近90分の結果（銘柄指定で絞り込み）。"""
