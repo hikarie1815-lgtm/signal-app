@@ -27,10 +27,9 @@ WATCH = [
     ("USDJPY", "ドル円", "fx", 3),
     ("EURUSD", "ユーロドル", "fx", 5),
     ("GBPJPY", "ポンド円", "fx", 3),
-    ("XAUUSD", "ゴールド", "metal", 2),
-    ("BTCUSDT", "ビットコイン", "crypto", 1),
-    ("ETHUSDT", "イーサリアム", "crypto", 2),
-    ("SOLUSDT", "ソラナ", "crypto", 2),
+    ("GBPUSD", "ポンドドル", "fx", 5),
+    ("AUDJPY", "豪ドル円", "fx", 3),
+    ("EURJPY", "ユーロ円", "fx", 3),
 ]
 
 INTERVAL_SEC = 180          # 監視周期
