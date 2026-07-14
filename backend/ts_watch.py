@@ -30,7 +30,6 @@ WATCH = [
     ("GBPUSD", "ポンドドル", "fx", 5),
     ("AUDJPY", "豪ドル円", "fx", 3),
     ("EURJPY", "ユーロ円", "fx", 3),
-    ("XAUUSD", "ゴールド", "metal", 2),
 ]
 
 INTERVAL_SEC = 180          # 監視周期
