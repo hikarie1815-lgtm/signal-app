@@ -61,12 +61,23 @@ def _save_signals():
         pass
 
 
+EA_QUEUE: list = []  # MT5 EA用の注文キュー（FX・金のみ）
+
+
 def record_signal(sym_id, name, grade, direction, price, plan):
     SIGNALS.append({
         "t": time.time(), "sym": sym_id, "name": name, "grade": grade,
         "dir": direction, "entry": price, "sl": plan["sl"], "tp": plan["tp"],
         "status": "open"})
     _save_signals()
+    # EAキューへ登録（仮想通貨はMT5対象外なので除外）
+    if not sym_id.endswith("USDT"):
+        EA_QUEUE.append({
+            "id": f"{int(time.time())}{sym_id}",
+            "sym": sym_id, "dir": direction, "sl": plan["sl"],
+            "tp": plan["tp"], "grade": grade, "t": time.time(),
+            "delivered": False})
+        del EA_QUEUE[:-50]
 
 
 async def evaluate_signals():
