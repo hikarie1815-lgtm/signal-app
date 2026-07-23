@@ -195,7 +195,7 @@ def test_rental_validation_messages(clients, rental_ctx):
     e = r.json()["errors"]
     assert e["site_id"] == "現場を選んでください"
     assert e["qty"] == "数量は1以上で入力してください"
-    assert "写真" in e["photo_ids"]
+    assert "photo_ids" not in e  # 写真は任意
 
 
 def test_rental_create_snapshot_and_estimate(clients, rental_ctx):
@@ -231,24 +231,16 @@ def test_active_rentals_visible_for_return(clients, rental_ctx):
     assert rows[0]["days_elapsed"] >= 1
 
 
-def test_return_requires_photo_when_damaged(clients, rental_ctx):
+def test_return_with_condition_flags(clients, rental_ctx):
     _, emp, _ = clients
     site, item = rental_ctx
     rid = emp.post("/api/rentals", json={
         "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
         "start_date": "2026-07-01", "due_date": "2026-07-10", "skip_photo": True}).json()["id"]
+    # 写真なしでも状態フラグ付きで返却できる（写真は任意）
     r = emp.post("/api/rentals/return", json={
         "ids": [rid], "returned_date": "2026-07-08",
-        "condition_flags": {"broken": True}})
-    assert r.status_code == 422
-    assert "写真" in r.json()["errors"]["photo_ids"]
-    # 写真を付ければ返却できる
-    p = emp.post("/api/photos", files={"file": ("damage.jpg", b"fakejpg", "image/jpeg")},
-                 data={"category": "故障・破損"})
-    assert p.status_code == 200
-    r = emp.post("/api/rentals/return", json={
-        "ids": [rid], "returned_date": "2026-07-08",
-        "condition_flags": {"broken": True}, "photo_ids": [p.json()["id"]]})
+        "condition_flags": {"broken": True}, "comment": "エンジン不調"})
     assert r.status_code == 200 and rid in r.json()["returned"]
 
 
@@ -295,21 +287,22 @@ def test_employee_cannot_edit_price_on_rental(clients, rental_ctx):
     assert row["daily_rate"] == 1000 and row["qty"] == 3
 
 
-def test_delete_request_flow(clients, rental_ctx):
-    admin, emp, _ = clients
+def test_delete_own_record(clients, rental_ctx):
+    admin, emp, emp2 = clients
     site, item = rental_ctx
     rid = emp.post("/api/rentals", json={
         "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
         "start_date": "2026-07-01", "due_date": "2026-07-02", "skip_photo": True}).json()["id"]
-    # 従業員は削除APIを持たない→取消申請
-    r = emp.post("/api/delete_requests",
-                 json={"target_type": "rental", "target_id": rid, "reason": "重複入力"})
-    assert r.status_code == 200
-    reqs = admin.get("/api/delete_requests").json()
-    target = next(x for x in reqs if x["target_id"] == rid)
-    r = admin.post(f"/api/delete_requests/{target['id']}/decide", json={"approve": True})
-    assert r.status_code == 200
+    # 他人の記録は削除できない
+    assert emp2.delete(f"/api/rentals/{rid}").status_code == 403
+    # 本人は削除できる（論理削除）
+    assert emp.delete(f"/api/rentals/{rid}").status_code == 200
     assert not [x for x in emp.get("/api/rentals", params={"mine": 1}).json() if x["id"] == rid]
+    # 管理者は誰の記録でも削除できる
+    rid2 = emp.post("/api/rentals", json={
+        "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
+        "start_date": "2026-07-01", "due_date": "2026-07-02", "skip_photo": True}).json()["id"]
+    assert admin.delete(f"/api/rentals/{rid2}").status_code == 200
 
 
 # ---------------- 第4段階: 廃棄物・写真・下書き
@@ -330,10 +323,10 @@ def test_waste_create_and_defaults(clients, rental_ctx):
     d = emp.get("/api/waste/defaults", params={"site_id": site}).json()
     assert d["hauler_id"]["name"] == "山川運送"
     assert d["disposal_id"]["name"] == "グリーンリサイクル"
-    # 処分完了
-    assert emp.post(f"/api/waste/{wid}/disposal_done").status_code == 200
+    # 記録には いつ・どこ・何を・どれだけ が入っている
     row = [x for x in emp.get("/api/waste").json() if x["id"] == wid][0]
-    assert row["disposal_done"] == 1
+    assert (row["out_date"], row["site_name"], row["waste_type"], row["qty"]) == \
+        ("2026-07-10", "□□団地外構工事", "枝葉", 2.5)
 
 
 def test_photo_upload_and_reorder(clients):
@@ -372,40 +365,17 @@ def test_home_counts(clients):
     assert "today_count" in h and "due_soon" in h and "drafts" in h
 
 
-def test_ocr_returns_candidates_not_confirmed(clients):
-    _, emp, _ = clients
-    r = emp.post("/api/ocr/slip")
-    assert r.status_code == 200
-    assert set(r.json()["candidates"]) >= {"date", "qty", "slip_no"}
-
-
-# ---------------- 第7段階: 確認ワークフロー・集計・出力・監査
-def test_workflow_and_lock(clients, rental_ctx):
+# ---------------- 集計・出力・監査
+def test_rental_amount_auto_calculated(clients, rental_ctx):
     admin, emp, _ = clients
     site, item = rental_ctx
     rid = emp.post("/api/rentals", json={
-        "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
+        "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 2,
         "start_date": "2026-07-01", "due_date": "2026-07-05", "skip_photo": True}).json()["id"]
-    # 差し戻しは理由必須
-    r = admin.post(f"/api/admin/records/rental/{rid}/wf", json={"status": "fix_requested"})
-    assert r.status_code == 422
-    r = admin.post(f"/api/admin/records/rental/{rid}/wf",
-                   json={"status": "fix_requested", "reason": "数量を確認してください"})
-    assert r.status_code == 200
-    # 従業員ホームに修正依頼として出る
-    fr = emp.get("/api/my/fix_requests").json()
-    assert any(x["id"] == rid for x in fr["rentals"])
-    # 従業員が修正すると未確認に戻る
-    emp.put(f"/api/rentals/{rid}", json={"qty": 2})
-    # 金額確定→従業員は編集不可
-    admin.post(f"/api/admin/records/rental/{rid}/wf", json={"status": "fixed_amount"})
-    assert emp.put(f"/api/rentals/{rid}", json={"qty": 5}).status_code == 403
+    # 一覧に自動計算金額（いつ・どこで・何を・いくら）が付く
     row = [x for x in admin.get("/api/rentals").json() if x["id"] == rid][0]
-    assert row["amount_total"] == (1000 * 5 + 500 + 100 * 5 + 50 * 5) * 2
-    # 請求済み→支払済み
-    for st in ("billed", "paid"):
-        assert admin.post(f"/api/admin/records/rental/{rid}/wf",
-                          json={"status": st}).status_code == 200
+    assert row["amount_est"] == (1000 * 5 + 500 + 100 * 5 + 50 * 5) * 2
+    assert row["site_name"] == "□□団地外構工事"
 
 
 def test_monthly_summary_and_exports(clients):
