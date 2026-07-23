@@ -52,3 +52,5 @@ python -m pytest tests/ -v
 - バックエンド: Python / FastAPI / SQLite（`data.db`）
 - フロントエンド: 依存ライブラリなしの HTML + JavaScript（スマホ最優先）
 - Excel出力: openpyxl ／ PDF出力: 印刷用HTML（ブラウザの「PDFとして保存」）
+
+<!-- deploy: 2026-07-23 DB reset -->
