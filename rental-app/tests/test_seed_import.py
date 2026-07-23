@@ -37,6 +37,10 @@ def test_seed_creates_two_batches_with_41_rows(tmp_path, monkeypatch):
     # 同名でも規格・コード違いは別行（別商品）
     dumps = [r for r in rows if r["name"] == "ダンプ"]
     assert len(dumps) == 4 and len({d["code"] for d in dumps}) == 4
+    # 並び順は見積書どおり（高所作業車が小さいサイズ→大きいサイズ）
+    kosho = [m["spec"] for m in masters if m["name"].startswith("高所作業車")]
+    assert kosho == ["9.9m/ETC", "12m/ETC", "15.5m/ETC", "17m/ETC",
+                     "19.5m/ETC", "22m/ETC", "27m/ETC"]
     # 2回目は投入されない（冪等）
     assert seed_import.seed(str(uploads)) is False
     assert conn.execute("SELECT COUNT(*) c FROM price_import_rows").fetchone()["c"] == 41
