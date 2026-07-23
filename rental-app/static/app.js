@@ -9,6 +9,23 @@ const fmtDate = (s) => { if (!s) return ""; const [y,m,d] = s.split("-"); return
 const yen = (n) => (n ?? 0).toLocaleString("ja-JP") + "円";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+/* SVG線画アイコン（絵文字不使用） */
+const ICONS = {
+  truck: '<rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+  return: '<polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/>',
+  calplus: '<rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="12" y1="12.5" x2="12" y2="17.5"/><line x1="9.5" y1="15" x2="14.5" y2="15"/>',
+  trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+  camera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+  clip: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><polyline points="9 14 11 16 15 12"/>',
+  check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+};
+const icon = (n, size = 24) =>
+  `<svg class="icn-svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" ` +
+  `stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ` +
+  `aria-hidden="true">${ICONS[n]}</svg>`;
+
 /* ---------------- API・オフライン対応 ---------------- */
 async function api(path, opt = {}) {
   const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opt });
@@ -183,7 +200,7 @@ async function renderHome() {
   const now = new Date();
   const days = ["日","月","火","水","木","金","土"];
   const nowTxt = `${now.getMonth()+1}月${now.getDate()}日(${days[now.getDay()]}) ${now.getHours()}:${String(now.getMinutes()).padStart(2,"0")}`;
-  const fixBand = h.fix_requests ? `<div class="alertband" onclick="renderToday()">⚠ 修正が必要な入力が ${h.fix_requests} 件あります（タップで確認）</div>` : "";
+  const fixBand = h.fix_requests ? `<div class="alertband" onclick="renderToday()">${icon("alert", 20)} 修正が必要な入力が ${h.fix_requests} 件あります（タップで確認）</div>` : "";
   $app().innerHTML = `
   <div class="homehead">
     <div class="name">${esc(h.user.display_name)} さん</div>
@@ -197,12 +214,12 @@ async function renderHome() {
   </div>
   ${fixBand}
   <div class="btn-grid">
-    <button class="bigbtn" onclick="startRental()"><span class="icon">🚜</span>レンタル開始</button>
-    <button class="bigbtn green" onclick="startReturn()"><span class="icon">↩️</span>レンタル返却</button>
-    <button class="bigbtn orange" onclick="startExtend()"><span class="icon">📅</span>レンタル延長</button>
-    <button class="bigbtn" style="background:#6a4b9a" onclick="startWaste()"><span class="icon">🗑️</span>廃棄物を登録</button>
-    <button class="bigbtn gray" onclick="startPhoto()"><span class="icon">📷</span>写真・伝票を登録</button>
-    <button class="bigbtn" style="background:#0b7285" onclick="renderToday()"><span class="icon">📋</span>今日の入力を確認</button>
+    <button class="bigbtn" onclick="startRental()"><span class="icn tint-blue">${icon("truck", 26)}</span>レンタル開始</button>
+    <button class="bigbtn" onclick="startReturn()"><span class="icn tint-green">${icon("return", 26)}</span>レンタル返却</button>
+    <button class="bigbtn" onclick="startExtend()"><span class="icn tint-orange">${icon("calplus", 26)}</span>レンタル延長</button>
+    <button class="bigbtn" onclick="startWaste()"><span class="icn tint-purple">${icon("trash", 26)}</span>廃棄物を登録</button>
+    <button class="bigbtn" onclick="startPhoto()"><span class="icn tint-slate">${icon("camera", 26)}</span>写真・伝票を登録</button>
+    <button class="bigbtn" onclick="renderToday()"><span class="icn tint-teal">${icon("clip", 26)}</span>今日の入力を確認</button>
   </div>
   <button class="backlink" onclick="logout()">ログアウト</button>`;
 }
@@ -232,7 +249,7 @@ async function renderSitePick(title, stepLabel, onPick, onBack) {
   <input id="sp-q" placeholder="現場名・元請会社名で検索" style="margin:8px 0">
   <div id="sp-list">
     ${list(pd.recent, "最近")}
-    ${list(pd.favorites, "★お気に入り")}
+    ${list(pd.favorites, "お気に入り")}
     ${list(pd.active, "施工中")}
   </div>
   <button class="btn secondary" id="sp-new" style="margin-top:10px">＋ 新しい現場を登録</button>
@@ -292,8 +309,8 @@ function photoStepHTML(photos, categories, selCat) {
   <select id="ph-cat" data-field="category">${categories.map(c =>
     `<option ${c === selCat ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
   <div class="btnrow">
-    <button class="btn" id="ph-take">📷 カメラで撮影</button>
-    <button class="btn secondary" id="ph-pick">アルバムから選ぶ</button>
+    <button class="btn" id="ph-take">${icon("camera", 20)}　カメラで撮影</button>
+    <button class="btn secondary" id="ph-pick">${icon("image", 20)}　アルバムから選ぶ</button>
   </div>
   <input type="file" id="ph-file-cam" accept="image/*" capture="environment" multiple style="display:none">
   <input type="file" id="ph-file-lib" accept="image/*,.pdf" multiple style="display:none">
@@ -375,7 +392,7 @@ async function renderRentalStep() {
     <input id="rw-q" placeholder="商品名・規格で検索" style="margin:8px 0" value="${esc(w.itemQ)}">
     <div id="rw-items">
       ${pick.recent.map(i => itemRow(i, "最近")).join("")}
-      ${pick.favorites.map(i => itemRow(i, "★")).join("")}
+      ${pick.favorites.map(i => itemRow(i, "お気に入り")).join("")}
     </div>
     <button class="btn secondary" id="rw-all" style="margin-top:8px">料金表から選ぶ（全商品）</button>`;
     document.getElementById("rw-back").onclick = () => { w.step = 1; renderRentalStep(); };
@@ -498,7 +515,7 @@ async function qrScan(onText) {
 function renderDone(msg, queued, actions) {
   window.__doneActions = actions.map(a => a[1]);
   $app().innerHTML = `
-  <div class="done-big">✅ ${esc(msg)}</div>
+  <div class="done-big"><span class="done-circle">${icon("check", 44)}</span><br>${esc(msg)}</div>
   ${queued ? `<div class="alertband">通信が弱いため端末に保存しました。「未送信」は通信回復後に自動送信されます</div>` : ""}
   <div class="btnrow" style="flex-direction:column">
     ${actions.map((a, i) => `<button class="btn ${i === 0 ? "" : "secondary"}" onclick="__doneActions[${i}]()">${esc(a[0])}</button>`).join("")}
@@ -824,7 +841,7 @@ function renderPhotoOnly() {
   const w = window.__ph;
   $app().innerHTML = `
   <button class="backlink" onclick="renderHome()">← ホームへ</button>
-  <div class="stephead"><span class="no">📷</span><span class="t">写真・伝票を登録</span></div>
+  <div class="stephead"><span class="no">写真</span><span class="t">写真・伝票を登録</span></div>
   ${photoStepHTML(w.photos, S.meta.photo_categories, "計量票")}
   <p class="muted">登録した写真は「今日の入力を確認」やレンタル・廃棄物の記録に添付できます</p>
   <div class="btnrow"><button class="btn green" onclick="renderDone('写真を登録しました', false, [['ホームへ戻る', renderHome]])">完了</button></div>`;
