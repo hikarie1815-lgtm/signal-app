@@ -27,6 +27,9 @@ os.makedirs(UPLOADS, exist_ok=True)
 
 D.init_db()
 
+from .seed_import import seed as _seed_import  # noqa: E402
+_seed_import(UPLOADS)
+
 
 def err(errors: dict, status: int = 422):
     return JSONResponse({"errors": errors}, status_code=status)

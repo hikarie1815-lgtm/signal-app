@@ -141,7 +141,11 @@ const v = (id) => document.getElementById(id).value.trim();
 function renderLogin() {
   S.view = "login";
   $app().innerHTML = `
-  <h1 style="margin-top:40px;text-align:center">レンタル・廃棄物管理</h1>
+  <div style="text-align:center;margin-top:36px">
+    <img src="/static/icon-192.png" alt="" style="width:96px;height:96px;border-radius:22px;
+      box-shadow:0 4px 14px rgba(13,58,125,.3)">
+  </div>
+  <h1 style="text-align:center">レンタル・廃棄物管理</h1>
   <div class="card">
     <label class="f">ログインID</label><input data-field="login" id="li-id" autocapitalize="none">
     <label class="f">パスワード</label><input data-field="login" id="li-pw" type="password">
