@@ -59,9 +59,25 @@ def test_employee_cannot_manage_users_or_prices(clients):
     _, emp, _ = clients
     assert emp.get("/api/users").status_code == 403
     assert emp.post("/api/price_master", json={"name": "x"}).status_code == 403
-    assert emp.post("/api/sites", json={"name": "x"}).status_code == 403
     assert emp.get("/api/admin/audit").status_code == 403
     assert emp.get("/api/admin/summary?month=2026-07").status_code == 403
+    # 現場の編集・削除は管理者のみ（登録は従業員も可）
+    assert emp.put("/api/sites/1", json={"name": "x"}).status_code == 403
+    assert emp.delete("/api/sites/1").status_code == 403
+
+
+def test_employee_can_create_site_and_dedup(clients):
+    admin, emp, _ = clients
+    r = emp.post("/api/sites", json={"name": "従業員登録の現場", "contractor": "テスト元請"})
+    assert r.status_code == 200 and r.json()["existing"] is False
+    sid = r.json()["id"]
+    # 同名は重複登録されず既存を返す
+    r2 = emp.post("/api/sites", json={"name": "従業員登録の現場"})
+    assert r2.json()["existing"] is True and r2.json()["id"] == sid
+    # 管理者一覧に登録者名が出る
+    rows = admin.get("/api/sites").json()
+    row = next(x for x in rows if x["id"] == sid)
+    assert row["creator"] == "佐藤"
 
 
 def test_admin_can_stop_employee(clients):

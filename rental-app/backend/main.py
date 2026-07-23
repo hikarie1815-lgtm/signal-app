@@ -256,15 +256,16 @@ def meta(user=Depends(current_user)):
 @app.get("/api/sites")
 def list_sites(q: str = "", contractor: str = "", user=Depends(current_user)):
     conn = get_db()
-    sql = "SELECT * FROM sites WHERE deleted=0"
+    sql = ("SELECT s.*, u.display_name creator FROM sites s "
+           "LEFT JOIN users u ON u.id=s.created_by WHERE s.deleted=0")
     args = []
     if q:
-        sql += " AND name LIKE ?"
+        sql += " AND s.name LIKE ?"
         args.append(f"%{q}%")
     if contractor:
-        sql += " AND contractor LIKE ?"
+        sql += " AND s.contractor LIKE ?"
         args.append(f"%{contractor}%")
-    rows = [dict(r) for r in conn.execute(sql + " ORDER BY id DESC", args)]
+    rows = [dict(r) for r in conn.execute(sql + " ORDER BY s.id DESC", args)]
     conn.close()
     return rows
 
@@ -290,19 +291,27 @@ def site_pickdata(user=Depends(current_user)):
 
 
 @app.post("/api/sites")
-async def create_site(request: Request, user=Depends(admin_user)):
+async def create_site(request: Request, user=Depends(current_user)):
+    """現場の登録（従業員も可）。同名の現場があれば重複登録せずそれを返す。"""
     body = await request.json()
-    if not (body.get("name") or "").strip():
+    name = (body.get("name") or "").strip()
+    if not name:
         return err({"name": "現場名を入力してください"})
     conn = get_db()
     try:
-        conn.execute("INSERT INTO sites(name,contractor,status,address,created_at) VALUES(?,?,?,?,?)",
-                     (body["name"].strip(), body.get("contractor", ""),
-                      body.get("status", "active"), body.get("address", ""), now_str()))
+        dup = conn.execute("SELECT * FROM sites WHERE name=? AND deleted=0", (name,)).fetchone()
+        if dup:
+            return {"ok": True, "id": dup["id"], "existing": True,
+                    "site": dict(dup)}
+        conn.execute("INSERT INTO sites(name,contractor,status,address,created_by,created_at)"
+                     " VALUES(?,?,?,?,?,?)",
+                     (name, body.get("contractor", ""), body.get("status", "active"),
+                      body.get("address", ""), user["id"], now_str()))
         sid = conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
         audit(conn, user, "現場登録", "site", sid, after=body, device=device_of(request))
         conn.commit()
-        return {"ok": True, "id": sid}
+        site = dict(conn.execute("SELECT * FROM sites WHERE id=?", (sid,)).fetchone())
+        return {"ok": True, "id": sid, "existing": False, "site": site}
     finally:
         conn.close()
 

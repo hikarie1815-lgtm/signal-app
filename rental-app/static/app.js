@@ -234,8 +234,43 @@ async function renderSitePick(title, stepLabel, onPick, onBack) {
     ${list(pd.recent, "最近")}
     ${list(pd.favorites, "★お気に入り")}
     ${list(pd.active, "施工中")}
+  </div>
+  <button class="btn secondary" id="sp-new" style="margin-top:10px">＋ 新しい現場を登録</button>
+  <div id="sp-new-form" class="card" style="display:none">
+    <label class="f">現場名</label>
+    <input id="sp-new-name" data-field="name" placeholder="例：○○公園整備工事">
+    <div id="sp-similar"></div>
+    <label class="f">元請会社名（任意）</label>
+    <input id="sp-new-con" placeholder="例：△△建設">
+    <div class="btnrow"><button class="btn green" id="sp-new-go">登録してこの現場を選ぶ</button></div>
   </div>`;
   document.getElementById("sp-back").onclick = onBack;
+  document.getElementById("sp-new").onclick = () => {
+    const f = document.getElementById("sp-new-form");
+    f.style.display = "block";
+    f.scrollIntoView({ behavior: "smooth" });
+    document.getElementById("sp-new-name").focus();
+  };
+  // 似た名前の現場を候補表示（表記ゆれによる重複登録を防ぐ）
+  document.getElementById("sp-new-name").oninput = async (e) => {
+    const q = e.target.value.trim();
+    const box = document.getElementById("sp-similar");
+    if (q.length < 2) { box.innerHTML = ""; return; }
+    const { data: sim } = await api(`/api/sites?q=${encodeURIComponent(q)}`);
+    box.innerHTML = sim.length ? `
+      <div class="muted" style="margin-top:6px">似た名前の現場があります。同じ現場ならタップで選択：</div>
+      ${sim.slice(0, 5).map(s => `
+        <div class="item-row" onclick='__sitePick(${JSON.stringify(s).replace(/'/g, "&#39;")})'>
+          <div class="grow"><div class="tt">${esc(s.name)}</div>
+          <div class="sub">${esc(s.contractor || "")}</div></div></div>`).join("")}` : "";
+  };
+  document.getElementById("sp-new-go").onclick = (ev) => guard(ev.target, async () => {
+    const name = v("sp-new-name");
+    const r = await post("/api/sites", { name, contractor: v("sp-new-con") });
+    ev.target.textContent = "登録してこの現場を選ぶ";
+    if (!r.ok) return showErrors(r.data.errors);
+    onPick(r.data.site);
+  });
   if (pd.last_site) document.getElementById("sp-last").onclick = () => onPick(pd.last_site);
   document.getElementById("sp-q").oninput = async (e) => {
     const q = e.target.value.trim();
