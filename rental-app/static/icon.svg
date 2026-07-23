@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a72d8"/>
+      <stop offset="1" stop-color="#0d3a7d"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <!-- 地面 -->
+  <rect x="70" y="404" width="372" height="14" rx="7" fill="#ffffff" opacity="0.35"/>
+  <!-- クローラー -->
+  <rect x="96" y="336" width="196" height="58" rx="29" fill="#ffffff"/>
+  <circle cx="128" cy="365" r="16" fill="#0d3a7d"/>
+  <circle cx="194" cy="365" r="16" fill="#0d3a7d"/>
+  <circle cx="260" cy="365" r="16" fill="#0d3a7d"/>
+  <!-- 車体・キャビン -->
+  <rect x="104" y="252" width="150" height="76" rx="16" fill="#ffffff"/>
+  <rect x="118" y="204" width="76" height="76" rx="14" fill="#ffffff"/>
+  <rect x="132" y="218" width="48" height="34" rx="8" fill="#2a72d8"/>
+  <!-- ブーム・アーム -->
+  <path d="M252 286 L344 168 L408 244" fill="none" stroke="#ffffff"
+        stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- バケット -->
+  <path d="M388 232 L430 262 L416 312 Q384 300 376 268 Z" fill="#ffffff"/>
+  <!-- 葉（造園） -->
+  <path d="M368 116 q44 -34 88 -18 q-8 48 -52 58 q-28 6 -44 -12 q0 -16 8 -28 Z" fill="#57c26b"/>
+  <path d="M372 146 q34 -26 76 -34" fill="none" stroke="#1a7f37" stroke-width="7" stroke-linecap="round"/>
+</svg>

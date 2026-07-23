@@ -10,3 +10,22 @@ services:
     envVars:
       - key: TWELVEDATA_API_KEY
         sync: false
+
+  # 建設レンタル・廃棄物管理アプリ（rental-app/）
+  - type: web
+    name: genba-kiroku
+    runtime: python
+    region: singapore
+    plan: free
+    rootDir: rental-app
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    # 注意: freeプランはディスクが保存されないため、再デプロイやスリープ復帰で
+    # データ（SQLite・写真）が消えます。本運用時は有料プランにして下記を有効化:
+    # disk:
+    #   name: rental-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # envVars:
+    #   - key: RENTAL_DB
+    #     value: /var/data/data.db
