@@ -365,6 +365,30 @@ def test_home_counts(clients):
     assert "today_count" in h and "due_soon" in h and "drafts" in h
 
 
+def test_rental_without_due_date(clients, rental_ctx):
+    admin, emp, _ = clients
+    site, item = rental_ctx
+    # 返却予定日は未定でも登録できる
+    r = emp.post("/api/rentals", json={
+        "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
+        "start_date": "2026-07-20", "skip_photo": True})
+    assert r.status_code == 200, r.text
+    rid = r.json()["id"]
+    row = [x for x in admin.get("/api/rentals").json() if x["id"] == rid][0]
+    assert row["due_date"] is None
+    assert row["amount_est"] is not None  # 本日までの概算が出る
+    # あとから返却日を入れると返却済みになる
+    r = emp.put(f"/api/rentals/{rid}", json={"returned_date": "2026-07-22"})
+    assert r.status_code == 200
+    row = [x for x in admin.get("/api/rentals").json() if x["id"] == rid][0]
+    assert row["status"] == "returned" and row["returned_date"] == "2026-07-22"
+    assert row["amount_est"] == (1000 * 3 + 500 + 100 * 3 + 50 * 3)  # 3日間
+    # 返却日の修正もできる
+    emp.put(f"/api/rentals/{rid}", json={"returned_date": "2026-07-23"})
+    row = [x for x in admin.get("/api/rentals").json() if x["id"] == rid][0]
+    assert row["returned_date"] == "2026-07-23"
+
+
 # ---------------- 集計・出力・監査
 def test_rental_amount_auto_calculated(clients, rental_ctx):
     admin, emp, _ = clients

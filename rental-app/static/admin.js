@@ -37,20 +37,46 @@ async function adRecords(type) {
     if (!r.ok) alert(Object.values(r.data.errors || {})[0]);
     adRecords(type);
   };
+  window.__adFixReturn = (id, cur) => {
+    document.getElementById(`aret-${id}`).innerHTML = `
+      <input type="date" id="aret-in-${id}" value="${cur || ""}" style="min-height:40px;width:160px">
+      <button class="btn small green" onclick="__adFixReturnSave(${id})">保存</button>`;
+  };
+  window.__adFixReturnSave = async (id) => {
+    const val = document.getElementById(`aret-in-${id}`).value;
+    if (!val) return alert("返却日を選んでください");
+    const r = await put(`/api/rentals/${id}`, { returned_date: val });
+    if (!r.ok) return alert(Object.values(r.data.errors || {})[0] || "保存できませんでした");
+    adRecords("rental");
+  };
   if (type === "rental") {
-    $b().innerHTML = `<h2>レンタル記録</h2>
-    <p class="muted">金額は単価表と日数から自動計算です（開始日・返却日の両方を含む／1〜9日は日割・10日以上は月極）</p>
-    <div style="overflow-x:auto"><table class="data"><tr>
-      <th>現場</th><th>商品</th><th class="num">数量</th><th>期間</th><th>状態</th>
-      <th class="num">金額（自動計算）</th><th></th></tr>
-    ${rows.map(r => `<tr>
-      <td>${esc(r.site_name)}</td><td>${esc(r.item_name)} ${esc(r.spec || "")}</td>
-      <td class="num">${r.qty}</td>
-      <td>${r.start_date}〜${r.returned_date || r.due_date}</td>
-      <td>${r.status === "active" ? "<span class='badge green'>レンタル中</span>" : "返却済み"}</td>
-      <td class="num"><b>${yenOr(r.amount_est)}</b></td>
-      <td><button class="btn small red" onclick="__adDel(${r.id},'${esc(r.item_name)}')">削除</button></td></tr>`).join("")}
-    </table></div>`;
+    // 現場ごとにまとめて表示
+    const groups = {};
+    rows.forEach(r => (groups[r.site_name || "（現場未設定）"] ||= []).push(r));
+    const blocks = Object.entries(groups).map(([site, list]) => {
+      const total = list.reduce((s, r) => s + (r.amount_est || 0), 0);
+      return `
+      <h2 style="margin-top:20px">${esc(site)}
+        <span class="muted" style="font-weight:600">計 ${total.toLocaleString()}円（${list.length}件）</span></h2>
+      <div style="overflow-x:auto"><table class="data"><tr>
+        <th>商品</th><th class="num">数量</th><th>開始</th><th>返却</th>
+        <th class="num">金額（自動計算）</th><th></th></tr>
+      ${list.map(r => `<tr>
+        <td>${esc(r.item_name)}<br><small class="muted">${esc(r.spec || "")}</small></td>
+        <td class="num">${r.qty}</td>
+        <td>${fmtShort(r.start_date)}</td>
+        <td><span id="aret-${r.id}">${r.returned_date
+          ? `${fmtShort(r.returned_date)}
+             <button class="btn small secondary" onclick="__adFixReturn(${r.id},'${r.returned_date}')">修正</button>`
+          : `<span class='badge green'>レンタル中</span>${r.due_date ? " 予定" + fmtShort(r.due_date) : ""}
+             <button class="btn small green" onclick="__adFixReturn(${r.id},'')">返却にする</button>`}</span></td>
+        <td class="num"><b>${yenOr(r.amount_est)}</b></td>
+        <td><button class="btn small red" onclick="__adDel(${r.id},'${esc(r.item_name)}')">削除</button></td></tr>`).join("")}
+      </table></div>`;
+    }).join("");
+    $b().innerHTML = `<h2>レンタル記録（現場ごと）</h2>
+    <p class="muted">金額は自動計算（レンタル中は本日までの概算）。「返却にする」で返却日を入力できます</p>
+    ${blocks || "<p class='muted'>まだ記録がありません</p>"}`;
   } else {
     $b().innerHTML = `<h2>廃棄物記録</h2>
     <p class="muted">金額欄をタップすると処分費を入力できます（任意）</p>
@@ -58,7 +84,7 @@ async function adRecords(type) {
       <th>現場</th><th>搬出日</th><th>種類</th><th class="num">数量</th><th>運搬</th>
       <th>処分先</th><th class="num">金額</th><th></th></tr>
     ${rows.map(x => `<tr>
-      <td>${esc(x.site_name)}</td><td>${x.out_date}</td><td>${esc(x.waste_type)}</td>
+      <td>${esc(x.site_name)}</td><td>${fmtShort(x.out_date)}</td><td>${esc(x.waste_type)}</td>
       <td class="num">${x.qty}${esc(x.unit)}</td><td>${esc(x.hauler_name || "")}</td>
       <td>${esc(x.disposal_name || "")}</td>
       <td class="num" onclick="__editAmount(${x.id})" style="cursor:pointer">
@@ -237,7 +263,7 @@ async function adSummary() {
       <th class="num">レンタル料</th><th class="num">基本料</th><th class="num">サポート</th>
       <th class="num">賠償</th><th class="num">当月小計</th></tr>
       ${x.rentals.map(r => `<tr><td>${esc(r.item_name)}</td><td class="num">${r.qty}</td>
-        <td>${r.start_date}〜${r.returned_date || r.due_date}</td><td class="num">${r.days}</td>
+        <td>${fmtShort(r.start_date)}〜${fmtShort(r.returned_date || r.due_date)}</td><td class="num">${r.days}</td>
         <td class="num">${r.rental.toLocaleString()}</td><td class="num">${r.basic.toLocaleString()}</td>
         <td class="num">${r.support.toLocaleString()}</td><td class="num">${r.damage.toLocaleString()}</td>
         <td class="num"><b>${r.subtotal.toLocaleString()}</b></td></tr>`).join("")}
@@ -245,7 +271,7 @@ async function adSummary() {
     ${x.waste.length ? `<div style="overflow-x:auto"><table class="data"><tr>
       <th>搬出日</th><th>種類</th><th class="num">数量</th><th>運搬</th><th>処分先</th>
       <th class="num">金額</th></tr>
-      ${x.waste.map(w2 => `<tr><td>${w2.out_date}</td><td>${esc(w2.waste_type)}</td>
+      ${x.waste.map(w2 => `<tr><td>${fmtShort(w2.out_date)}</td><td>${esc(w2.waste_type)}</td>
         <td class="num">${w2.qty}${esc(w2.unit)}</td><td>${esc(w2.hauler_name || "")}</td>
         <td>${esc(w2.disposal_name || "")}</td>
         <td class="num">${w2.amount != null ? w2.amount.toLocaleString() : "—"}</td></tr>`).join("")}

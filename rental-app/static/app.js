@@ -6,6 +6,28 @@ const $app = () => document.getElementById("app");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const fmtDate = (s) => { if (!s) return ""; const [y,m,d] = s.split("-"); return `${y}年${+m}月${+d}日`; };
+/* 短い日付表記: 今年なら「7/23」、年が違えば「2027年1/10」 */
+const fmtShort = (s) => {
+  if (!s) return "—";
+  const [y, m, d] = s.split("-");
+  return (+y !== new Date().getFullYear() ? `${y}年` : "") + `${+m}/${+d}`;
+};
+/* レンタル期間の表示: 開始 〜 返却(済) / 予定 / 未定 */
+const periodText = (r) => r.returned_date
+  ? `${fmtShort(r.start_date)} 〜 ${fmtShort(r.returned_date)} 返却済み`
+  : r.due_date
+    ? `${fmtShort(r.start_date)} 〜 ${fmtShort(r.due_date)} 予定`
+    : `${fmtShort(r.start_date)} 〜 （返却日未定）`;
+/* 商品の種類分け */
+const ITEM_CATS = [
+  ["ダンプ", (n) => n.includes("ダンプ")],
+  ["トラック", (n) => n.includes("トラック") || n.includes("塵芥")],
+  ["高所作業車", (n) => n.includes("高所")],
+  ["バックホー", (n) => n.includes("バックホー")],
+  ["アタッチメント", (n) => /フォーク|バケット|リッパー/.test(n)],
+  ["草刈り", (n) => /芝刈|草刈|集草/.test(n)],
+];
+const catOf = (name) => { const hit = ITEM_CATS.find(([, f]) => f(name || "")); return hit ? hit[0] : "その他"; };
 const yen = (n) => (n ?? 0).toLocaleString("ja-JP") + "円";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -386,30 +408,44 @@ async function renderRentalStep() {
         ${tag ? `<span class="badge">${tag}</span>` : ""}
         <span class="muted" style="white-space:nowrap">${it.daily_rate != null ? it.daily_rate.toLocaleString() + "円/日" : ""}</span>
       </div>`;
-    const listHTML = (q) => {
-      const needle = (q || "").toLowerCase();
-      const hit = (it) => !needle ||
-        `${it.name}${it.spec || ""}${it.code || ""}`.toLowerCase().includes(needle);
-      const tops = needle ? [] : [
+    const cats = ["すべて", ...ITEM_CATS.map(c => c[0]), "その他"]
+      .filter(c => c === "すべて" || all.some(i => catOf(i.name) === c));
+    w.itemCat = w.itemCat || "すべて";
+    const listHTML = () => {
+      const needle = (w.itemQ || "").toLowerCase();
+      const hit = (it) =>
+        (w.itemCat === "すべて" || catOf(it.name) === w.itemCat) &&
+        (!needle || `${it.name}${it.spec || ""}${it.code || ""}`.toLowerCase().includes(needle));
+      const tops = (needle || w.itemCat !== "すべて") ? [] : [
         ...pick.recent.filter(hit).map(i => itemRow(i, "最近")),
         ...pick.favorites.filter(hit).map(i => itemRow(i, "お気に入り"))];
       const topIds = new Set([...pick.recent, ...pick.favorites].map(i => i.id));
-      const rest = all.filter(hit).filter(i => needle || !topIds.has(i.id))
+      const rest = all.filter(hit)
+        .filter(i => needle || w.itemCat !== "すべて" || !topIds.has(i.id))
         .map(i => itemRow(i, ""));
       return [...tops, ...rest].join("") ||
-        "<p class='muted'>見つかりませんでした。検索語を短くしてみてください</p>";
+        "<p class='muted'>見つかりませんでした。種類ボタンや検索語を変えてみてください</p>";
     };
     $app().innerHTML = `
     <button class="backlink" id="rw-back">← 戻る</button>
     <div class="stephead"><span class="no">2／${total}</span><span class="t">商品を選択</span></div>
-    <input id="rw-q" type="search" placeholder="商品名・規格・コードで絞り込み"
+    <div class="chips" id="rw-cats" style="margin:4px 0">${cats.map(c =>
+      `<button class="chip ${w.itemCat === c ? "sel" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+    <input id="rw-q" type="search" placeholder="2文字でしぼり込み（例：ダンプ、高所、CS）"
       value="${esc(w.itemQ)}" style="margin:4px 0 8px">
-    <div id="rw-items">${listHTML(w.itemQ)}</div>
+    <div id="rw-items">${listHTML()}</div>
     ${all.length === 0 ? "<div class='alertband'>料金マスターが空です。管理者画面の「料金マスター」で商品を登録してください</div>" : ""}`;
     document.getElementById("rw-back").onclick = () => { w.step = 1; renderRentalStep(); };
+    document.getElementById("rw-cats").onclick = (e) => {
+      if (!e.target.dataset.c) return;
+      w.itemCat = e.target.dataset.c;
+      document.querySelectorAll("#rw-cats .chip").forEach(el =>
+        el.classList.toggle("sel", el.dataset.c === w.itemCat));
+      document.getElementById("rw-items").innerHTML = listHTML();
+    };
     document.getElementById("rw-q").oninput = (e) => {
       w.itemQ = e.target.value.trim();
-      document.getElementById("rw-items").innerHTML = listHTML(w.itemQ);
+      document.getElementById("rw-items").innerHTML = listHTML();
     };
     return;
   }
@@ -433,7 +469,9 @@ async function renderRentalStep() {
     <label class="f">レンタル業者</label><input id="rw-vendor" data-field="vendor_id" value="${esc(w.vendor)}" placeholder="例：アクティオ">
     <label class="f">数量（台数）</label><input id="rw-qty" data-field="qty" type="number" inputmode="numeric" min="1" value="${w.qty}">
     <label class="f">レンタル開始日</label><input id="rw-start" data-field="start_date" type="date" value="${w.start_date}">
-    <label class="f">返却予定日</label><input id="rw-due" data-field="due_date" type="date" value="${w.due_date}">
+    <label class="f">返却予定日（決まっていなければ空欄でOK）</label>
+    <input id="rw-due" data-field="due_date" type="date" value="${w.due_date}">
+    <p class="muted">実際の返却日は、返したときに「レンタル返却」から登録します</p>
     <div class="btnrow"><button class="btn" id="rw-next">次へ（写真）</button></div>`;
     document.getElementById("rw-back").onclick = () => { save3(); w.step = 2; renderRentalStep(); };
     const save3 = () => { w.vendor = v("rw-vendor"); w.qty = v("rw-qty"); w.start_date = v("rw-start"); w.due_date = v("rw-due"); };
@@ -443,7 +481,6 @@ async function renderRentalStep() {
       if (!w.vendor) errs.vendor_id = "レンタル業者を入力してください";
       if (!w.qty || +w.qty < 1) errs.qty = "数量は1以上で入力してください";
       if (!w.start_date) errs.start_date = "レンタル開始日を選んでください";
-      if (!w.due_date) errs.due_date = "返却予定日を選んでください";
       if (w.start_date && w.due_date && w.due_date < w.start_date) errs.due_date = "返却予定日は開始日以降にしてください";
       if (Object.keys(errs).length) return showErrors(errs);
       w.step = 4; renderRentalStep();
@@ -472,7 +509,7 @@ async function renderRentalStep() {
       <tr><td>レンタル業者</td><td>${esc(w.vendor)}</td></tr>
       <tr><td>数量</td><td>${esc(w.qty)}台</td></tr>
       <tr><td>開始日</td><td>${fmtDate(w.start_date)}</td></tr>
-      <tr><td>返却予定日</td><td>${fmtDate(w.due_date)}</td></tr>
+      <tr><td>返却予定日</td><td>${w.due_date ? fmtDate(w.due_date) : "未定（返却時に登録）"}</td></tr>
       <tr><td>写真</td><td>${w.photos.length}枚</td></tr>
     </table>
   </div>
@@ -532,7 +569,7 @@ async function renderReturnStep() {
         <input type="checkbox" data-id="${r.id}" ${w.checked.includes(r.id) ? "checked" : ""}>
         <div class="grow">
           <div class="tt">${esc(r.item_name)} ${esc(r.spec || "")} × ${r.qty}</div>
-          <div class="sub">開始 ${fmtDate(r.start_date)} ／ 予定 ${fmtDate(r.due_date)} ／ ${r.days_elapsed}日目</div>
+          <div class="sub">開始 ${fmtShort(r.start_date)} ／ ${r.due_date ? "予定 " + fmtShort(r.due_date) : "予定未定"} ／ ${r.days_elapsed}日目</div>
         </div>
         ${r.photos.length ? `<img src="${r.photos[0].file_path}" style="width:56px;height:56px;object-fit:cover;border-radius:8px">` : ""}
       </label>`).join("") : "<p class='muted'>この現場にレンタル中の商品はありません</p>"}
@@ -635,7 +672,7 @@ async function renderExtendStep() {
     ${w.list.length ? w.list.map(r => `
       <div class="item-row" onclick='__exPick(${JSON.stringify(r).replace(/'/g,"&#39;")})'>
         <div class="grow"><div class="tt">${esc(r.item_name)} × ${r.qty}</div>
-        <div class="sub">返却予定 ${fmtDate(r.due_date)}（${r.days_elapsed}日目）</div></div></div>`).join("")
+        <div class="sub">${r.due_date ? "返却予定 " + fmtShort(r.due_date) : "返却予定未定"}（${r.days_elapsed}日目）</div></div></div>`).join("")
       : "<p class='muted'>この現場にレンタル中の商品はありません</p>"}`;
     document.getElementById("ex-back").onclick = () => { w.step = 1; renderExtendStep(); };
     return;
@@ -645,7 +682,7 @@ async function renderExtendStep() {
   <button class="backlink" id="ex-back">← 戻る</button>
   <div class="stephead"><span class="no">3／3</span><span class="t">新しい返却予定日</span></div>
   <div class="card"><div class="tt" style="font-weight:800">${esc(w.rental.item_name)} × ${w.rental.qty}</div>
-    <div class="muted">現在の返却予定日：${fmtDate(w.rental.due_date)}</div></div>
+    <div class="muted">現在の返却予定日：${w.rental.due_date ? fmtDate(w.rental.due_date) : "未定"}</div></div>
   <label class="f">新しい返却予定日</label>
   <input id="ex-due" data-field="new_due" type="date" value="${w.new_due}">
   <label class="f">延長理由</label>
@@ -822,6 +859,19 @@ async function renderToday() {
     const r = await api(url, { method: "DELETE" });
     if (r.ok) renderToday();
   };
+  // 返却日のあとから修正（タップで日付入力に切替）
+  window.__fixReturn = (id, cur) => {
+    document.getElementById(`ret-${id}`).innerHTML = `
+      <input type="date" id="ret-in-${id}" value="${cur || ""}" style="min-height:44px;width:170px">
+      <button class="btn small green" onclick="__fixReturnSave(${id})">保存</button>`;
+  };
+  window.__fixReturnSave = async (id) => {
+    const val = document.getElementById(`ret-in-${id}`).value;
+    if (!val) return alert("返却日を選んでください");
+    const r = await put(`/api/rentals/${id}`, { returned_date: val });
+    if (!r.ok) return alert(Object.values(r.data.errors || {})[0] || "保存できませんでした");
+    renderToday();
+  };
   $app().innerHTML = `
   <button class="backlink" onclick="renderHome()">← ホームへ</button>
   <h1>記録を確認</h1>
@@ -832,8 +882,10 @@ async function renderToday() {
   <h2>レンタル（${rentals.length}件）</h2>
   ${rentals.slice(0, 30).map(r => `<div class="item-row"><div class="grow">
     <div class="tt">${esc(r.item_name)} × ${r.qty}（${esc(r.site_name)}）</div>
-    <div class="sub">${fmtDate(r.start_date)} 〜 ${fmtDate(r.returned_date || r.due_date)}
-      ${r.status === "returned" ? "／ 返却済み" : "／ レンタル中"}</div></div>
+    <div class="sub">${periodText(r)}</div>
+    <span id="ret-${r.id}">${r.returned_date ? `
+      <button class="btn small secondary" onclick="__fixReturn(${r.id},'${r.returned_date}')">返却日を修正</button>` : ""}</span>
+    </div>
     <button class="btn small red" onclick="__delRec('rental',${r.id},'${esc(r.item_name)}')">削除</button></div>`).join("") ||
     "<p class='muted'>まだありません</p>"}
   <h2>廃棄物（${waste.length}件）</h2>
