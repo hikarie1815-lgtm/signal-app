@@ -200,7 +200,6 @@ async function renderHome() {
   const now = new Date();
   const days = ["日","月","火","水","木","金","土"];
   const nowTxt = `${now.getMonth()+1}月${now.getDate()}日(${days[now.getDay()]}) ${now.getHours()}:${String(now.getMinutes()).padStart(2,"0")}`;
-  const fixBand = h.fix_requests ? `<div class="alertband" onclick="renderToday()">${icon("alert", 20)} 修正が必要な入力が ${h.fix_requests} 件あります（タップで確認）</div>` : "";
   $app().innerHTML = `
   <div class="homehead">
     <div class="name">${esc(h.user.display_name)} さん</div>
@@ -212,14 +211,13 @@ async function renderHome() {
       <div class="stat"><div class="v" id="draft-count">${draftCount()}</div><div class="k">下書き</div></div>
     </div>
   </div>
-  ${fixBand}
   <div class="btn-grid">
     <button class="bigbtn" onclick="startRental()"><span class="icn tint-blue">${icon("truck", 26)}</span>レンタル開始</button>
     <button class="bigbtn" onclick="startReturn()"><span class="icn tint-green">${icon("return", 26)}</span>レンタル返却</button>
     <button class="bigbtn" onclick="startExtend()"><span class="icn tint-orange">${icon("calplus", 26)}</span>レンタル延長</button>
     <button class="bigbtn" onclick="startWaste()"><span class="icn tint-purple">${icon("trash", 26)}</span>廃棄物を登録</button>
-    <button class="bigbtn" onclick="startPhoto()"><span class="icn tint-slate">${icon("camera", 26)}</span>写真・伝票を登録</button>
-    <button class="bigbtn" onclick="renderToday()"><span class="icn tint-teal">${icon("clip", 26)}</span>今日の入力を確認</button>
+    <button class="bigbtn" style="grid-column:1/-1;min-height:76px;flex-direction:row"
+      onclick="renderToday()"><span class="icn tint-teal">${icon("clip", 26)}</span>記録を確認する</button>
   </div>
   <button class="backlink" onclick="logout()">ログアウト</button>`;
 }
@@ -447,15 +445,12 @@ async function renderRentalStep() {
   if (w.step === 4) {
     $app().innerHTML = `
     <button class="backlink" id="rw-back">← 戻る</button>
-    <div class="stephead"><span class="no">4／${total}</span><span class="t">写真・伝票を追加</span></div>
+    <div class="stephead"><span class="no">4／${total}</span><span class="t">写真・伝票を追加（任意）</span></div>
     ${photoStepHTML(w.photos, ["レンタル開始", "機械全体", "管理番号", "請求書", "その他"], "レンタル開始")}
     <div class="btnrow"><button class="btn" id="rw-next">次へ（内容確認）</button></div>`;
     document.getElementById("rw-back").onclick = () => { w.step = 3; renderRentalStep(); };
     bindPhotoStep(w, () => renderRentalStep());
-    document.getElementById("rw-next").onclick = () => {
-      if (!w.photos.length) return showErrors({ category: "写真または伝票を追加してください" });
-      w.step = 5; renderRentalStep();
-    };
+    document.getElementById("rw-next").onclick = () => { w.step = 5; renderRentalStep(); };
     return;
   }
   /* step 5: 確認 */
@@ -583,10 +578,7 @@ async function renderReturnStep() {
     </div>
     <label class="f">コメント（任意）</label>
     <textarea id="rt-com">${esc(w.comment)}</textarea>
-    <div id="rt-photo-block">${(w.flags.broken || w.flags.damaged || w.flags.missing) ? `
-      <div class="alertband">故障・破損・不足品ありの場合は写真が必要です</div>
-      ${photoStepHTML(w.photos, ["レンタル返却", "故障・破損"], "故障・破損")}` : `
-      ${photoStepHTML(w.photos, ["レンタル返却", "機械全体"], "レンタル返却")}`}</div>
+    <div id="rt-photo-block">${photoStepHTML(w.photos, ["レンタル返却", "機械全体", "故障・破損"], "レンタル返却")}</div>
     <div class="btnrow"><button class="btn" id="rt-next">次へ（内容確認）</button></div>`;
     document.getElementById("rt-back").onclick = () => { w.step = 2; renderReturnStep(); };
     bindPhotoStep(w, () => renderReturnStep());
@@ -597,11 +589,7 @@ async function renderReturnStep() {
     };
     document.getElementById("rt-next").onclick = () => {
       w.returned_date = v("rt-date"); w.comment = v("rt-com");
-      const errs = {};
-      if (!w.returned_date) errs.returned_date = "返却日を選んでください";
-      if ((w.flags.broken || w.flags.damaged || w.flags.missing) && !w.photos.length)
-        errs.category = "故障・破損・不足品ありの場合は写真が必要です";
-      if (Object.keys(errs).length) return showErrors(errs);
+      if (!w.returned_date) return showErrors({ returned_date: "返却日を選んでください" });
       w.step = 4; renderReturnStep();
     };
     return;
@@ -785,16 +773,14 @@ async function renderWasteStep() {
   if (w.step === 4) {
     $app().innerHTML = `
     <button class="backlink" id="ws-back">← 戻る</button>
-    <div class="stephead"><span class="no">4／${total}</span><span class="t">写真・伝票を追加</span></div>
+    <div class="stephead"><span class="no">4／${total}</span><span class="t">写真・伝票を追加（任意）</span></div>
     ${photoStepHTML(w.photos, ["廃棄物積込前", "積込中", "積込後", "処分場", "計量票", "マニフェスト", "その他"], "計量票")}
-    <p class="muted">伝票・計量票を撮影すると読取候補を表示します（自動では確定しません）</p>
     <label class="f">伝票番号（任意）</label><input id="ws-slip" value="${esc(w.slip_no)}">
     <div class="btnrow"><button class="btn" id="ws-next">次へ（内容確認）</button></div>`;
     document.getElementById("ws-back").onclick = () => { w.slip_no = v("ws-slip"); w.step = 3; renderWasteStep(); };
     bindPhotoStep(w, () => renderWasteStep());
     document.getElementById("ws-next").onclick = () => {
       w.slip_no = v("ws-slip");
-      if (!w.photos.length) return showErrors({ category: "写真または伝票を追加してください" });
       w.step = 5; renderWasteStep();
     };
     return;
@@ -832,72 +818,40 @@ async function renderWasteStep() {
   });
 }
 
-/* ================= 写真・伝票のみ登録 ================= */
-function startPhoto() {
-  window.__ph = { photos: [] };
-  renderPhotoOnly();
-}
-function renderPhotoOnly() {
-  const w = window.__ph;
-  $app().innerHTML = `
-  <button class="backlink" onclick="renderHome()">← ホームへ</button>
-  <div class="stephead"><span class="no">写真</span><span class="t">写真・伝票を登録</span></div>
-  ${photoStepHTML(w.photos, S.meta.photo_categories, "計量票")}
-  <p class="muted">登録した写真は「今日の入力を確認」やレンタル・廃棄物の記録に添付できます</p>
-  <div class="btnrow"><button class="btn green" onclick="renderDone('写真を登録しました', false, [['ホームへ戻る', renderHome]])">完了</button></div>`;
-  bindPhotoStep(w, renderPhotoOnly);
-}
-
-/* ================= 今日の入力確認 ================= */
+/* ================= 記録の確認 ================= */
 async function renderToday() {
-  const [{ data: rentals }, { data: waste }, { data: fix }] = await Promise.all([
-    api("/api/rentals?mine=1&today=1"), api("/api/waste?today=1"), api("/api/my/fix_requests")]);
+  const [{ data: rentals }, { data: waste }] = await Promise.all([
+    api("/api/rentals?mine=1"), api("/api/waste")]);
   const drafts = ["rental", "return", "extend", "waste"].filter(k => draftLoad(k));
   const draftLabel = { rental: "レンタル開始（入力途中）", return: "レンタル返却（入力途中）",
     extend: "レンタル延長（入力途中）", waste: "廃棄物登録（入力途中）" };
   const resume = { rental: () => startRental(true), return: () => startReturn(true),
     extend: () => startExtend(), waste: () => startWaste(true) };
   window.__resume = resume;
-  window.__cancelReq = async (type, id) => {
-    const reason = prompt("取消申請の理由を入力してください（管理者に通知されます）");
-    if (reason === null) return;
-    const r = await post("/api/delete_requests", { target_type: type, target_id: id, reason });
-    if (r.ok) { alert("取消申請を送りました。管理者が確認します"); renderToday(); }
-  };
-  const wfBadge = (s) => {
-    const lb = S.meta.wf_labels[s] || s;
-    const cls = s === "fix_requested" ? "red" : s === "unconfirmed" ? "orange" : "green";
-    return `<span class="badge ${cls}">${lb}</span>`;
+  window.__delRec = async (type, id, label) => {
+    if (!confirm(`「${label}」の記録を削除しますか？`)) return;
+    const url = type === "rental" ? `/api/rentals/${id}` : `/api/waste/${id}`;
+    const r = await api(url, { method: "DELETE" });
+    if (r.ok) renderToday();
   };
   $app().innerHTML = `
   <button class="backlink" onclick="renderHome()">← ホームへ</button>
-  <h1>今日の入力を確認</h1>
-  ${(fix.rentals.length + fix.waste.length) ? `<h2 style="color:var(--red)">修正が必要な入力</h2>
-    ${[...fix.rentals.map(r => ({ ...r, _t: "rental" })), ...fix.waste.map(x => ({ ...x, _t: "waste" }))].map(r => `
-    <div class="item-row"><div class="grow">
-      <div class="tt">${esc(r.item_name || r.waste_type)}（${esc(r.site_name || "")}）</div>
-      <div class="sub" style="color:var(--red)">管理者より：${esc(r.wf_reason)}</div></div></div>`).join("")}` : ""}
+  <h1>記録を確認</h1>
   ${drafts.length ? `<h2>入力途中の下書き</h2>${drafts.map(k => `
     <div class="item-row" onclick="__resume['${k}']()"><div class="grow">
       <div class="tt">${draftLabel[k]}</div><div class="sub">タップして続きから入力</div></div>
       <span class="badge orange">下書き</span></div>`).join("")}` : ""}
-  <h2>本日のレンタル入力（${rentals.length}件）</h2>
-  ${rentals.map(r => `<div class="item-row"><div class="grow">
+  <h2>レンタル（${rentals.length}件）</h2>
+  ${rentals.slice(0, 30).map(r => `<div class="item-row"><div class="grow">
     <div class="tt">${esc(r.item_name)} × ${r.qty}（${esc(r.site_name)}）</div>
-    <div class="sub">${fmtDate(r.start_date)} 〜 ${fmtDate(r.due_date)}</div></div>
-    ${wfBadge(r.wf_status)}
-    <button class="btn small red" onclick="__cancelReq('rental',${r.id})">取消申請</button></div>`).join("") ||
+    <div class="sub">${fmtDate(r.start_date)} 〜 ${fmtDate(r.returned_date || r.due_date)}
+      ${r.status === "returned" ? "／ 返却済み" : "／ レンタル中"}</div></div>
+    <button class="btn small red" onclick="__delRec('rental',${r.id},'${esc(r.item_name)}')">削除</button></div>`).join("") ||
     "<p class='muted'>まだありません</p>"}
-  <h2>本日の廃棄物入力（${waste.length}件）</h2>
-  ${waste.map(x => `<div class="item-row"><div class="grow">
+  <h2>廃棄物（${waste.length}件）</h2>
+  ${waste.slice(0, 30).map(x => `<div class="item-row"><div class="grow">
     <div class="tt">${esc(x.waste_type)} ${x.qty}${esc(x.unit)}（${esc(x.site_name)}）</div>
-    <div class="sub">搬出日 ${fmtDate(x.out_date)}${x.disposal_done ? " ／ 処分完了" : ""}</div></div>
-    ${wfBadge(x.wf_status)}
-    ${x.disposal_done ? "" : `<button class="btn small green" onclick="markDisposal(${x.id})">処分完了</button>`}
-    <button class="btn small red" onclick="__cancelReq('waste',${x.id})">取消申請</button></div>`).join("") ||
+    <div class="sub">搬出日 ${fmtDate(x.out_date)} ／ ${esc(x.disposal_name || "")}</div></div>
+    <button class="btn small red" onclick="__delRec('waste',${x.id},'${esc(x.waste_type)}')">削除</button></div>`).join("") ||
     "<p class='muted'>まだありません</p>"}`;
-}
-async function markDisposal(id) {
-  const r = await post(`/api/waste/${id}/disposal_done`, {});
-  if (r.ok) renderToday();
 }

@@ -248,7 +248,7 @@ def meta(user=Depends(current_user)):
     return {
         "waste_types": D.WASTE_TYPES, "waste_types_top": D.WASTE_TYPES_TOP,
         "waste_units": D.WASTE_UNITS, "extension_reasons": D.EXTENSION_REASONS,
-        "photo_categories": D.PHOTO_CATEGORIES, "wf_labels": D.WF_LABELS,
+        "photo_categories": D.PHOTO_CATEGORIES,
     }
 
 
@@ -570,8 +570,6 @@ async def create_rental(request: Request, user=Depends(current_user)):
     due = parse_date(body.get("due_date"), "due_date", errors, "返却予定日")
     if start and due and due < start:
         errors["due_date"] = "返却予定日は開始日以降にしてください"
-    if not body.get("photo_ids") and not body.get("skip_photo"):
-        errors["photo_ids"] = "写真または伝票を追加してください"
     if errors:
         return err(errors)
 
@@ -664,6 +662,8 @@ def list_rentals(site_id: int = 0, status: str = "", mine: int = 0,
         d["photos"] = [dict(p) for p in conn.execute(
             "SELECT id,category,file_path FROM photos WHERE target_type='rental' "
             "AND target_id=? AND deleted=0 ORDER BY sort_order,id", (d["id"],))]
+        est = rental_snapshot_estimate(d)
+        d["amount_est"] = est["total"] if est else None
         rows.append(d)
     conn.close()
     return rows
@@ -691,9 +691,6 @@ async def return_rentals(request: Request, user=Depends(current_user)):
         errors["ids"] = "返却する商品を選んでください"
     rdate = parse_date(body.get("returned_date"), "returned_date", errors, "返却日")
     flags = body.get("condition_flags") or {}
-    needs_photo = any(flags.get(k) for k in ("broken", "damaged", "missing"))
-    if needs_photo and not body.get("photo_ids"):
-        errors["photo_ids"] = "故障・破損・不足品ありの場合は写真が必要です"
     if errors:
         return err(errors)
     conn = get_db()
@@ -773,11 +770,8 @@ async def update_rental(rid: int, request: Request, user=Depends(current_user)):
         row = conn.execute("SELECT * FROM rentals WHERE id=? AND deleted=0", (rid,)).fetchone()
         if not row:
             raise HTTPException(404, "レンタル記録が見つかりません")
-        if user["role"] != "admin":
-            if row["created_by"] != user["id"]:
-                raise HTTPException(403, "自分が登録した記録だけ修正できます")
-            if row["amount_locked"] or row["wf_status"] in ("fixed_amount", "billed", "paid"):
-                raise HTTPException(403, "確定済みの記録は修正できません。管理者に連絡してください")
+        if user["role"] != "admin" and row["created_by"] != user["id"]:
+            raise HTTPException(403, "自分が登録した記録だけ修正できます")
         errors = {}
         updates = {}
         if "qty" in body:
@@ -804,9 +798,6 @@ async def update_rental(rid: int, request: Request, user=Depends(current_user)):
         if updates:
             sets = ",".join(f"{k}=?" for k in updates)
             conn.execute(f"UPDATE rentals SET {sets} WHERE id=?", (*updates.values(), rid))
-            if row["wf_status"] == "fix_requested":
-                conn.execute("UPDATE rentals SET wf_status='unconfirmed', wf_reason='' WHERE id=?",
-                             (rid,))
             audit(conn, user, "レンタル記録修正", "rental", rid,
                   before={k: row[k] for k in updates}, after=updates,
                   device=device_of(request))
@@ -816,53 +807,18 @@ async def update_rental(rid: int, request: Request, user=Depends(current_user)):
         conn.close()
 
 
-# ---------------------------------------------------------------- 取消申請
-@app.post("/api/delete_requests")
-async def create_delete_request(request: Request, user=Depends(current_user)):
-    body = await request.json()
-    tt, tid = body.get("target_type"), body.get("target_id")
-    if tt not in ("rental", "waste") or not tid:
-        return err({"target": "対象の記録を選んでください"})
+@app.delete("/api/rentals/{rid}")
+def delete_rental(rid: int, request: Request, user=Depends(current_user)):
     conn = get_db()
     try:
-        conn.execute(
-            "INSERT INTO delete_requests(target_type,target_id,reason,requested_by,created_at)"
-            " VALUES(?,?,?,?,?)", (tt, tid, body.get("reason", ""), user["id"], now_str()))
-        did = conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
-        audit(conn, user, "取消申請", tt, tid, after={"reason": body.get("reason", "")},
-              device=device_of(request))
-        conn.commit()
-        return {"ok": True, "id": did}
-    finally:
-        conn.close()
-
-
-@app.get("/api/delete_requests")
-def list_delete_requests(user=Depends(admin_user)):
-    conn = get_db()
-    rows = [dict(r) for r in conn.execute(
-        "SELECT d.*, u.display_name requester FROM delete_requests d "
-        "LEFT JOIN users u ON u.id=d.requested_by WHERE d.status='pending' ORDER BY d.id DESC")]
-    conn.close()
-    return rows
-
-
-@app.post("/api/delete_requests/{did}/decide")
-async def decide_delete_request(did: int, request: Request, user=Depends(admin_user)):
-    body = await request.json()
-    approve = bool(body.get("approve"))
-    conn = get_db()
-    try:
-        row = conn.execute("SELECT * FROM delete_requests WHERE id=?", (did,)).fetchone()
-        if not row or row["status"] != "pending":
-            raise HTTPException(404, "取消申請が見つかりません")
-        conn.execute("UPDATE delete_requests SET status=?, decided_by=?, decided_at=? WHERE id=?",
-                     ("approved" if approve else "rejected", user["id"], now_str(), did))
-        if approve:
-            table = "rentals" if row["target_type"] == "rental" else "waste_records"
-            conn.execute(f"UPDATE {table} SET deleted=1 WHERE id=?", (row["target_id"],))
-        audit(conn, user, "取消申請承認" if approve else "取消申請却下",
-              row["target_type"], row["target_id"], device=device_of(request))
+        row = conn.execute("SELECT * FROM rentals WHERE id=? AND deleted=0", (rid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "レンタル記録が見つかりません")
+        if user["role"] != "admin" and row["created_by"] != user["id"]:
+            raise HTTPException(403, "自分が登録した記録だけ削除できます")
+        conn.execute("UPDATE rentals SET deleted=1 WHERE id=?", (rid,))
+        audit(conn, user, "レンタル記録削除", "rental", rid,
+              before={"item": row["item_name"], "qty": row["qty"]}, device=device_of(request))
         conn.commit()
         return {"ok": True}
     finally:
@@ -893,8 +849,6 @@ async def create_waste(request: Request, user=Depends(current_user)):
         errors["hauler_id"] = "運搬業者を選んでください"
     if not body.get("disposal_id") and not (body.get("disposal_name") or "").strip():
         errors["disposal_id"] = "処分先を選んでください"
-    if not body.get("photo_ids") and not body.get("skip_photo"):
-        errors["photo_ids"] = "写真または伝票を追加してください"
     if errors:
         return err(errors)
     conn = get_db()
@@ -985,21 +939,6 @@ def waste_defaults(site_id: int, user=Depends(current_user)):
         conn.close()
 
 
-@app.post("/api/waste/{wid}/disposal_done")
-def waste_disposal_done(wid: int, request: Request, user=Depends(current_user)):
-    conn = get_db()
-    try:
-        row = conn.execute("SELECT * FROM waste_records WHERE id=? AND deleted=0", (wid,)).fetchone()
-        if not row:
-            raise HTTPException(404, "廃棄物記録が見つかりません")
-        conn.execute("UPDATE waste_records SET disposal_done=1 WHERE id=?", (wid,))
-        audit(conn, user, "処分完了登録", "waste", wid, device=device_of(request))
-        conn.commit()
-        return {"ok": True}
-    finally:
-        conn.close()
-
-
 @app.put("/api/waste/{wid}")
 async def update_waste(wid: int, request: Request, user=Depends(current_user)):
     body = await request.json()
@@ -1008,11 +947,8 @@ async def update_waste(wid: int, request: Request, user=Depends(current_user)):
         row = conn.execute("SELECT * FROM waste_records WHERE id=? AND deleted=0", (wid,)).fetchone()
         if not row:
             raise HTTPException(404, "廃棄物記録が見つかりません")
-        if user["role"] != "admin":
-            if row["created_by"] != user["id"]:
-                raise HTTPException(403, "自分が登録した記録だけ修正できます")
-            if row["wf_status"] in ("fixed_amount", "billed", "paid"):
-                raise HTTPException(403, "確定済みの記録は修正できません。管理者に連絡してください")
+        if user["role"] != "admin" and row["created_by"] != user["id"]:
+            raise HTTPException(403, "自分が登録した記録だけ修正できます")
         errors = {}
         updates = {}
         if body.get("out_date"):
@@ -1039,9 +975,6 @@ async def update_waste(wid: int, request: Request, user=Depends(current_user)):
         if updates:
             sets = ",".join(f"{k}=?" for k in updates)
             conn.execute(f"UPDATE waste_records SET {sets} WHERE id=?", (*updates.values(), wid))
-            if row["wf_status"] == "fix_requested":
-                conn.execute("UPDATE waste_records SET wf_status='unconfirmed', wf_reason='' "
-                             "WHERE id=?", (wid,))
             audit(conn, user, "廃棄物記録修正", "waste", wid,
                   before={k: row[k] for k in updates}, after=updates,
                   device=device_of(request))
@@ -1051,14 +984,22 @@ async def update_waste(wid: int, request: Request, user=Depends(current_user)):
         conn.close()
 
 
-# ---------------------------------------------------------------- OCR読取（候補のみ・自動確定しない）
-@app.post("/api/ocr/slip")
-async def ocr_slip(file: UploadFile = File(None), user=Depends(current_user)):
-    """伝票・計量票の読取候補。OCRエンジンが無い環境では空の候補を返し、
-    従業員が手入力で確認・確定する（読取結果は勝手に確定しない設計）。"""
-    return {"candidates": {"date": None, "qty": None, "unit": None, "vehicle_no": None,
-                           "disposal_site": None, "slip_no": None, "amount": None},
-            "note": "自動読取は利用できません。内容を確認して入力してください"}
+@app.delete("/api/waste/{wid}")
+def delete_waste(wid: int, request: Request, user=Depends(current_user)):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM waste_records WHERE id=? AND deleted=0", (wid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "廃棄物記録が見つかりません")
+        if user["role"] != "admin" and row["created_by"] != user["id"]:
+            raise HTTPException(403, "自分が登録した記録だけ削除できます")
+        conn.execute("UPDATE waste_records SET deleted=1 WHERE id=?", (wid,))
+        audit(conn, user, "廃棄物記録削除", "waste", wid,
+              before={"type": row["waste_type"], "qty": row["qty"]}, device=device_of(request))
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------- 写真
@@ -1195,11 +1136,6 @@ def home(user=Depends(current_user)):
             "SELECT COUNT(*) c FROM rentals WHERE status='active' AND deleted=0 "
             "AND due_date <= date(?, '+3 day')", (today,)).fetchone()["c"]
         drafts = conn.execute("SELECT COUNT(*) c FROM drafts WHERE user_id=?", (uid,)).fetchone()["c"]
-        fix_requests = conn.execute(
-            "SELECT COUNT(*) c FROM (SELECT id FROM rentals WHERE created_by=? AND "
-            "wf_status='fix_requested' AND deleted=0 UNION ALL SELECT id FROM waste_records "
-            "WHERE created_by=? AND wf_status='fix_requested' AND deleted=0)",
-            (uid, uid)).fetchone()["c"]
         last_site_id = get_pref(conn, uid, "last_site")
         last_site = None
         if last_site_id:
@@ -1208,80 +1144,7 @@ def home(user=Depends(current_user)):
         return {"user": {"display_name": user["display_name"], "role": user["role"]},
                 "now": now_str(), "last_site": last_site,
                 "today_count": rentals_today + waste_today, "due_soon": due_soon,
-                "drafts": drafts, "fix_requests": fix_requests}
-    finally:
-        conn.close()
-
-
-@app.get("/api/my/fix_requests")
-def my_fix_requests(user=Depends(current_user)):
-    conn = get_db()
-    out = {"rentals": [dict(r) for r in conn.execute(
-        "SELECT r.*, s.name site_name FROM rentals r LEFT JOIN sites s ON s.id=r.site_id "
-        "WHERE r.created_by=? AND r.wf_status='fix_requested' AND r.deleted=0", (user["id"],))],
-        "waste": [dict(r) for r in conn.execute(
-            "SELECT w.*, s.name site_name FROM waste_records w LEFT JOIN sites s ON s.id=w.site_id "
-            "WHERE w.created_by=? AND w.wf_status='fix_requested' AND w.deleted=0", (user["id"],))]}
-    conn.close()
-    return out
-
-
-# ---------------------------------------------------------------- 管理者: 確認ワークフロー
-WF_ORDER = {"unconfirmed": 0, "confirmed": 1, "fixed_amount": 2, "billed": 3, "paid": 4}
-
-
-@app.post("/api/admin/records/{rtype}/{rid}/wf")
-async def set_wf(rtype: str, rid: int, request: Request, user=Depends(admin_user)):
-    body = await request.json()
-    status = body.get("status")
-    if rtype not in ("rental", "waste") or status not in D.WF_STATUSES:
-        raise HTTPException(400, "状態の指定が正しくありません")
-    if status == "fix_requested" and not (body.get("reason") or "").strip():
-        return err({"reason": "差し戻す理由を入力してください"})
-    table = "rentals" if rtype == "rental" else "waste_records"
-    conn = get_db()
-    try:
-        row = conn.execute(f"SELECT * FROM {table} WHERE id=? AND deleted=0", (rid,)).fetchone()
-        if not row:
-            raise HTTPException(404, "記録が見つかりません")
-        extra = ""
-        args = [status, body.get("reason", "")]
-        if rtype == "rental" and status == "fixed_amount":
-            est = rental_snapshot_estimate(dict(row))
-            total = est["total"] if est else None
-            extra = ", amount_total=?, amount_locked=1"
-            args.append(total)
-        elif status in ("unconfirmed", "confirmed", "fix_requested") and rtype == "rental":
-            extra = ", amount_locked=0"
-        args.append(rid)
-        conn.execute(f"UPDATE {table} SET wf_status=?, wf_reason=?{extra} WHERE id=?", args)
-        audit(conn, user, f"状態変更({D.WF_LABELS[status]})", rtype, rid,
-              before={"wf_status": row["wf_status"]},
-              after={"wf_status": status, "reason": body.get("reason", "")},
-              device=device_of(request))
-        conn.commit()
-        return {"ok": True}
-    finally:
-        conn.close()
-
-
-@app.get("/api/admin/dashboard")
-def admin_dashboard(user=Depends(admin_user)):
-    conn = get_db()
-    try:
-        def count(sql, *args):
-            return conn.execute(sql, args).fetchone()["c"]
-        return {
-            "unconfirmed": count("SELECT COUNT(*) c FROM (SELECT id FROM rentals WHERE "
-                                 "wf_status='unconfirmed' AND deleted=0 UNION ALL "
-                                 "SELECT id FROM waste_records WHERE wf_status='unconfirmed' AND deleted=0)"),
-            "fix_requested": count("SELECT COUNT(*) c FROM (SELECT id FROM rentals WHERE "
-                                   "wf_status='fix_requested' AND deleted=0 UNION ALL "
-                                   "SELECT id FROM waste_records WHERE wf_status='fix_requested' AND deleted=0)"),
-            "delete_requests": count("SELECT COUNT(*) c FROM delete_requests WHERE status='pending'"),
-            "active_rentals": count("SELECT COUNT(*) c FROM rentals WHERE status='active' AND deleted=0"),
-            "needs_review_prices": count("SELECT COUNT(*) c FROM price_master WHERE needs_review=1 AND active=1"),
-        }
+                "drafts": drafts}
     finally:
         conn.close()
 
@@ -1326,15 +1189,14 @@ def admin_summary(month: str, user=Depends(admin_user)):
             s["rentals"].append({
                 "id": r["id"], "item_name": r["item_name"], "qty": r["qty"],
                 "start_date": r["start_date"], "due_date": r["due_date"],
-                "returned_date": r["returned_date"], "wf_status": r["wf_status"],
+                "returned_date": r["returned_date"],
                 **r["month_line"]})
         for w in waste:
             s = sites.setdefault(w["site_name"] or "(現場未設定)",
                                  {"rental_total": 0, "waste_total": 0, "rentals": [], "waste": []})
             s["waste_total"] += w["amount"] or 0
             s["waste"].append({k: w[k] for k in ("id", "out_date", "waste_type", "qty", "unit",
-                                                 "hauler_name", "disposal_name", "amount",
-                                                 "wf_status")})
+                                                 "hauler_name", "disposal_name", "amount")})
         total = sum(s["rental_total"] + s["waste_total"] for s in sites.values())
         return {"month": month, "sites": sites, "grand_total": total}
     finally:
@@ -1350,17 +1212,15 @@ def export_csv(month: str, user=Depends(admin_user)):
     w = csv.writer(buf)
     w.writerow(["種別", "現場", "品名/廃棄物", "規格", "数量", "単位", "開始日", "返却予定日",
                 "返却日", "当月日数", "レンタル料", "基本料", "サポート料", "賠償対策費",
-                "当月小計", "状態"])
+                "当月小計"])
     for r in rentals:
         ml = r["month_line"]
         w.writerow(["レンタル", r["site_name"], r["item_name"], r["spec"], r["qty"], "台",
                     r["start_date"], r["due_date"], r["returned_date"] or "", ml["days"],
-                    ml["rental"], ml["basic"], ml["support"], ml["damage"], ml["subtotal"],
-                    D.WF_LABELS.get(r["wf_status"], "")])
+                    ml["rental"], ml["basic"], ml["support"], ml["damage"], ml["subtotal"]])
     for x in waste:
         w.writerow(["廃棄物", x["site_name"], x["waste_type"], "", x["qty"], x["unit"],
-                    x["out_date"], "", "", "", "", "", "", "", x["amount"] or "",
-                    D.WF_LABELS.get(x["wf_status"], "")])
+                    x["out_date"], "", "", "", "", "", "", "", x["amount"] or ""])
     data = "﻿" + buf.getvalue()  # Excelで文字化けしないようBOM付き
     return Response(data, media_type="text/csv",
                     headers={"Content-Disposition": f"attachment; filename=summary_{month}.csv"})
@@ -1376,19 +1236,17 @@ def export_xlsx(month: str, user=Depends(admin_user)):
     ws = wb.active
     ws.title = f"{month} レンタル"
     ws.append(["現場", "品名", "規格", "数量", "開始日", "返却予定日", "返却日", "当月日数",
-               "レンタル料", "基本料", "サポート料", "賠償対策費", "当月小計", "状態"])
+               "レンタル料", "基本料", "サポート料", "賠償対策費", "当月小計"])
     for r in rentals:
         ml = r["month_line"]
         ws.append([r["site_name"], r["item_name"], r["spec"], r["qty"], r["start_date"],
                    r["due_date"], r["returned_date"] or "", ml["days"], ml["rental"],
-                   ml["basic"], ml["support"], ml["damage"], ml["subtotal"],
-                   D.WF_LABELS.get(r["wf_status"], "")])
+                   ml["basic"], ml["support"], ml["damage"], ml["subtotal"]])
     ws2 = wb.create_sheet(f"{month} 廃棄物")
-    ws2.append(["現場", "搬出日", "種類", "数量", "単位", "運搬業者", "処分先", "金額", "状態"])
+    ws2.append(["現場", "搬出日", "種類", "数量", "単位", "運搬業者", "処分先", "金額"])
     for x in waste:
         ws2.append([x["site_name"], x["out_date"], x["waste_type"], x["qty"], x["unit"],
-                    x["hauler_name"], x["disposal_name"], x["amount"] or "",
-                    D.WF_LABELS.get(x["wf_status"], "")])
+                    x["hauler_name"], x["disposal_name"], x["amount"] or ""])
     out = io.BytesIO()
     wb.save(out)
     return Response(out.getvalue(),
