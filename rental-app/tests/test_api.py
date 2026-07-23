@@ -309,20 +309,25 @@ def test_waste_create_and_defaults(clients, rental_ctx):
     e = r.json()["errors"]
     assert e["waste_type"] == "廃棄物の種類を選んでください"
     assert "単位" in e["unit"]
+    # 処分先なし・金額（処分代）ありで登録できる
     r = emp.post("/api/waste", json={
         "site_id": site, "out_date": "2026-07-10", "waste_type": "枝葉", "qty": 2.5,
-        "unit": "t", "hauler_name": "山川運送", "disposal_name": "グリーンリサイクル",
+        "unit": "t", "hauler_name": "山川運送", "amount": 15000,
         "skip_photo": True, "client_key": "wk-1"})
     assert r.status_code == 200, r.text
     wid = r.json()["id"]
-    # 前回業者が候補になる
+    # 前回の運搬業者が候補になる
     d = emp.get("/api/waste/defaults", params={"site_id": site}).json()
     assert d["hauler_id"]["name"] == "山川運送"
-    assert d["disposal_id"]["name"] == "グリーンリサイクル"
-    # 記録には いつ・どこ・何を・どれだけ が入っている
+    # 記録には いつ・どこ・何を・どれだけ・処分代 が入っている
     row = [x for x in emp.get("/api/waste").json() if x["id"] == wid][0]
-    assert (row["out_date"], row["site_name"], row["waste_type"], row["qty"]) == \
-        ("2026-07-10", "□□団地外構工事", "枝葉", 2.5)
+    assert (row["out_date"], row["site_name"], row["waste_type"], row["qty"],
+            row["amount"]) == ("2026-07-10", "□□団地外構工事", "枝葉", 2.5, 15000)
+    # 金額が数字でないときは日本語エラー
+    r = emp.post("/api/waste", json={
+        "site_id": site, "out_date": "2026-07-10", "waste_type": "草", "qty": 1,
+        "unit": "袋", "hauler_name": "山川運送", "amount": "abc", "skip_photo": True})
+    assert "数字" in r.json()["errors"]["amount"]
 
 
 def test_photo_upload_and_reorder(clients):

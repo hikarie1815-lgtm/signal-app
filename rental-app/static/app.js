@@ -731,7 +731,7 @@ function estimateHTML(est) {
 function startWaste(resume) {
   const d = resume ? draftLoad("waste") : null;
   window.__ws = d || { step: 1, site: null, out_date: todayStr(), waste_type: "", qty: "",
-    unit: "", hauler: "", disposal: "", slip_no: "", photos: [], client_key: uid() };
+    unit: "", hauler: "", amount: "", slip_no: "", photos: [], client_key: uid() };
   renderWasteStep();
 }
 async function renderWasteStep() {
@@ -743,7 +743,6 @@ async function renderWasteStep() {
       w.site = s;
       const { data: def } = await api(`/api/waste/defaults?site_id=${s.id}`);
       if (def.hauler_id && !w.hauler) w.hauler = def.hauler_id.name;
-      if (def.disposal_id && !w.disposal) w.disposal = def.disposal_id.name;
       w.step = 2; renderWasteStep();
     }, () => renderHome());
   }
@@ -775,10 +774,11 @@ async function renderWasteStep() {
     <div class="chips" id="ws-units" data-field="unit">${S.meta.waste_units.map(u =>
       `<button class="chip ${w.unit === u ? "sel" : ""}" data-u="${esc(u)}">${esc(u)}</button>`).join("")}</div>
     <label class="f">運搬業者</label><input id="ws-hauler" data-field="hauler_id" value="${esc(w.hauler)}" placeholder="前回の業者が自動で入ります">
-    <label class="f">処分先</label><input id="ws-disposal" data-field="disposal_id" value="${esc(w.disposal)}" placeholder="前回の処分先が自動で入ります">
+    <label class="f">金額（処分代・わかれば入力）</label>
+    <input id="ws-amount" data-field="amount" type="number" inputmode="numeric" value="${esc(w.amount)}" placeholder="あとから記録簿でも入力できます">
     <div class="btnrow"><button class="btn" id="ws-next">次へ（写真）</button></div>`;
     document.getElementById("ws-back").onclick = () => { save(); w.step = 2; renderWasteStep(); };
-    const save = () => { w.out_date = v("ws-date"); w.qty = v("ws-qty"); w.hauler = v("ws-hauler"); w.disposal = v("ws-disposal"); };
+    const save = () => { w.out_date = v("ws-date"); w.qty = v("ws-qty"); w.hauler = v("ws-hauler"); w.amount = v("ws-amount"); };
     document.getElementById("ws-units").onclick = (e) => {
       if (!e.target.dataset.u) return;
       save(); w.unit = e.target.dataset.u; renderWasteStep();
@@ -790,7 +790,6 @@ async function renderWasteStep() {
       if (!w.qty || +w.qty <= 0) errs.qty = "数量は0より大きい値で入力してください";
       if (!w.unit) errs.unit = "単位を選んでください";
       if (!w.hauler) errs.hauler_id = "運搬業者を入力してください";
-      if (!w.disposal) errs.disposal_id = "処分先を入力してください";
       if (Object.keys(errs).length) return showErrors(errs);
       w.step = 4; renderWasteStep();
     };
@@ -822,7 +821,7 @@ async function renderWasteStep() {
       <tr><td>種類</td><td>${esc(w.waste_type)}</td></tr>
       <tr><td>数量</td><td>${esc(w.qty)} ${esc(w.unit)}</td></tr>
       <tr><td>運搬業者</td><td>${esc(w.hauler)}</td></tr>
-      <tr><td>処分先</td><td>${esc(w.disposal)}</td></tr>
+      <tr><td>金額（処分代）</td><td>${w.amount ? yen(+w.amount) : "あとで入力"}</td></tr>
       <tr><td>写真</td><td>${w.photos.length}枚</td></tr>
     </table>
   </div>
@@ -831,7 +830,7 @@ async function renderWasteStep() {
   document.getElementById("ws-go").onclick = (ev) => guard(ev.target, async () => {
     const r = await submitOrQueue("/api/waste", {
       site_id: w.site.id, out_date: w.out_date, waste_type: w.waste_type, qty: +w.qty,
-      unit: w.unit, hauler_name: w.hauler, disposal_name: w.disposal, slip_no: w.slip_no,
+      unit: w.unit, hauler_name: w.hauler, amount: w.amount || null, slip_no: w.slip_no,
       client_key: w.client_key, photo_ids: w.photos.filter(p => p.id).map(p => p.id),
       skip_photo: !w.photos.some(p => p.id) });
     ev.target.textContent = "この内容で登録する";
@@ -874,7 +873,7 @@ async function renderLedger() {
     renderLedger();
   };
   window.__wasteAmount = async (id) => {
-    const a = prompt("処分費（円・整数）を入力してください");
+    const a = prompt("処分代（円・整数）を入力してください");
     if (a === null) return;
     const r = await put(`/api/waste/${id}`, { amount: a });
     if (!r.ok) return alert(Object.values(r.data.errors || {})[0]);
@@ -898,16 +897,17 @@ async function renderLedger() {
   const wasteRow = (x) => `
     <div class="item-row"><div class="grow">
       <div class="tt">${esc(x.waste_type)} ${x.qty}${esc(x.unit)}</div>
-      <div class="sub">搬出 ${fmtShort(x.out_date)} ／ ${esc(x.disposal_name || "")} ／
+      <div class="sub">搬出 ${fmtShort(x.out_date)} ／ 運搬 ${esc(x.hauler_name || "—")} ／
         <span onclick="__wasteAmount(${x.id})" style="text-decoration:underline;cursor:pointer">
-        ${x.amount != null ? "<b>" + x.amount.toLocaleString() + "円</b>" : "処分費を入力"}</span></div>
+        処分代 ${x.amount != null ? "<b>" + x.amount.toLocaleString() + "円</b>" : "を入力"}</span></div>
       <div class="sub">入力：${esc(x.creator || "—")}</div></div>
     <button class="btn small red" onclick="__delRec('waste',${x.id},'${esc(x.waste_type)}')">削除</button></div>`;
   const blocks = Object.entries(groups).map(([site, g]) => {
-    const total = g.r.reduce((s2, r) => s2 + (r.amount_est || 0), 0) +
-      g.w.reduce((s2, x) => s2 + (x.amount || 0), 0);
-    return `<h2 style="margin-top:18px">${esc(site)}
-      <span class="muted" style="font-weight:600">計 ${total.toLocaleString()}円</span></h2>
+    const rTotal = g.r.reduce((s2, r) => s2 + (r.amount_est || 0), 0);
+    const wTotal = g.w.reduce((s2, x) => s2 + (x.amount || 0), 0);
+    return `<h2 style="margin-top:18px">${esc(site)}</h2>
+      <div class="muted" style="margin:-6px 0 6px">レンタル ${rTotal.toLocaleString()}円 ＋ 処分代 ${wTotal.toLocaleString()}円
+      ＝ <b>${(rTotal + wTotal).toLocaleString()}円</b></div>
       ${g.r.map(rentalRow).join("")}${g.w.map(wasteRow).join("")}`;
   }).join("");
   $app().innerHTML = `

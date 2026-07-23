@@ -425,7 +425,8 @@ def list_price_master(q: str = "", user=Depends(current_user)):
     if q:
         sql += " AND (name LIKE ? OR code LIKE ? OR spec LIKE ?)"
         args += [f"%{q}%"] * 3
-    rows = [dict(r) for r in conn.execute(sql + " ORDER BY name", args)]
+    # 見積内訳書の記載順（小さいサイズ→大きいサイズ）のまま表示する
+    rows = [dict(r) for r in conn.execute(sql + " ORDER BY id", args)]
     conn.close()
     return rows
 
@@ -846,8 +847,14 @@ async def create_waste(request: Request, user=Depends(current_user)):
         errors["unit"] = "単位を選んでください"
     if not body.get("hauler_id") and not (body.get("hauler_name") or "").strip():
         errors["hauler_id"] = "運搬業者を選んでください"
-    if not body.get("disposal_id") and not (body.get("disposal_name") or "").strip():
-        errors["disposal_id"] = "処分先を選んでください"
+    amount = None
+    if body.get("amount") not in (None, ""):
+        try:
+            amount = int(body["amount"])
+            if amount < 0:
+                errors["amount"] = "金額は0以上で入力してください"
+        except (TypeError, ValueError):
+            errors["amount"] = "金額は数字で入力してください"
     if errors:
         return err(errors)
     conn = get_db()
@@ -871,12 +878,15 @@ async def create_waste(request: Request, user=Depends(current_user)):
             return conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
 
         hauler_id = resolve_vendor("hauler", "hauler_id", "hauler_name")
-        disposal_id = resolve_vendor("disposal", "disposal_id", "disposal_name")
+        disposal_id = None  # 処分先は使わない（要望により廃止）
+        if body.get("disposal_id") or (body.get("disposal_name") or "").strip():
+            disposal_id = resolve_vendor("disposal", "disposal_id", "disposal_name")
         conn.execute(
             "INSERT INTO waste_records(site_id,out_date,waste_type,qty,unit,hauler_id,"
-            "disposal_id,slip_no,created_by,client_key,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "disposal_id,slip_no,amount,created_by,client_key,created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (site_id, out_date.isoformat(), wtype, qty, body["unit"], hauler_id,
-             disposal_id, body.get("slip_no", ""), user["id"], ck, now_str()))
+             disposal_id, body.get("slip_no", ""), amount, user["id"], ck, now_str()))
         wid = conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
         for pid in body.get("photo_ids") or []:
             conn.execute("UPDATE photos SET target_type='waste', target_id=? WHERE id=? AND taken_by=?",
