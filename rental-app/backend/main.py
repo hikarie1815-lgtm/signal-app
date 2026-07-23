@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import db as D
-from .auth import admin_user, create_session, current_user, hash_password, verify_password
+from .auth import create_session, current_user, hash_password, verify_password
 from .db import audit, get_db, get_pref, now_str, set_pref
 from .pricing import calc_rental_charge
 
@@ -168,7 +168,7 @@ async def change_password(request: Request, user=Depends(current_user)):
 
 # ---------------------------------------------------------------- 従業員管理（管理者）
 @app.get("/api/users")
-def list_users(user=Depends(admin_user)):
+def list_users(user=Depends(current_user)):
     conn = get_db()
     rows = [dict(r) for r in conn.execute(
         "SELECT id,role,name,display_name,login_id,email,active,must_change_password,"
@@ -178,7 +178,7 @@ def list_users(user=Depends(admin_user)):
 
 
 @app.post("/api/users")
-async def create_user(request: Request, user=Depends(admin_user)):
+async def create_user(request: Request, user=Depends(current_user)):
     body = await request.json()
     errors = {}
     for f, label in [("name", "氏名"), ("display_name", "表示名"),
@@ -209,7 +209,7 @@ async def create_user(request: Request, user=Depends(admin_user)):
 
 
 @app.post("/api/users/{uid}/toggle_active")
-def toggle_active(uid: int, request: Request, user=Depends(admin_user)):
+def toggle_active(uid: int, request: Request, user=Depends(current_user)):
     conn = get_db()
     try:
         row = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
@@ -227,7 +227,7 @@ def toggle_active(uid: int, request: Request, user=Depends(admin_user)):
 
 
 @app.post("/api/users/{uid}/reset_password")
-async def reset_password(uid: int, request: Request, user=Depends(admin_user)):
+async def reset_password(uid: int, request: Request, user=Depends(current_user)):
     body = await request.json()
     if not (body.get("temp_password") or "").strip():
         return err({"temp_password": "仮パスワードを入力してください"})
@@ -317,7 +317,7 @@ async def create_site(request: Request, user=Depends(current_user)):
 
 
 @app.put("/api/sites/{sid}")
-async def update_site(sid: int, request: Request, user=Depends(admin_user)):
+async def update_site(sid: int, request: Request, user=Depends(current_user)):
     body = await request.json()
     conn = get_db()
     try:
@@ -336,7 +336,7 @@ async def update_site(sid: int, request: Request, user=Depends(admin_user)):
 
 
 @app.delete("/api/sites/{sid}")
-def delete_site(sid: int, request: Request, user=Depends(admin_user)):
+def delete_site(sid: int, request: Request, user=Depends(current_user)):
     conn = get_db()
     try:
         before = conn.execute("SELECT * FROM sites WHERE id=?", (sid,)).fetchone()
@@ -407,7 +407,7 @@ async def create_vendor(request: Request, user=Depends(current_user)):
 
 
 @app.delete("/api/vendors/{vid}")
-def delete_vendor(vid: int, request: Request, user=Depends(admin_user)):
+def delete_vendor(vid: int, request: Request, user=Depends(current_user)):
     conn = get_db()
     conn.execute("UPDATE vendors SET deleted=1 WHERE id=?", (vid,))
     audit(conn, user, "業者削除", "vendor", vid, device=device_of(request))
@@ -449,7 +449,7 @@ def _price_fields(body, errors):
 
 
 @app.post("/api/price_master")
-async def create_price(request: Request, user=Depends(admin_user)):
+async def create_price(request: Request, user=Depends(current_user)):
     body = await request.json()
     errors = {}
     if not (body.get("name") or "").strip():
@@ -478,7 +478,7 @@ async def create_price(request: Request, user=Depends(admin_user)):
 
 
 @app.put("/api/price_master/{pid}")
-async def update_price(pid: int, request: Request, user=Depends(admin_user)):
+async def update_price(pid: int, request: Request, user=Depends(current_user)):
     body = await request.json()
     errors = {}
     vals = _price_fields(body, errors)
@@ -638,10 +638,12 @@ async def create_rental(request: Request, user=Depends(current_user)):
 
 @app.get("/api/rentals")
 def list_rentals(site_id: int = 0, status: str = "", mine: int = 0,
-                 today: int = 0, user=Depends(current_user)):
+                 today: int = 0, month: str = "", user=Depends(current_user)):
     conn = get_db()
-    sql = ("SELECT r.*, s.name site_name, v.name vendor_name FROM rentals r "
+    sql = ("SELECT r.*, s.name site_name, v.name vendor_name, u.display_name creator "
+           "FROM rentals r "
            "LEFT JOIN sites s ON s.id=r.site_id LEFT JOIN vendors v ON v.id=r.vendor_id "
+           "LEFT JOIN users u ON u.id=r.created_by "
            "WHERE r.deleted=0")
     args = []
     if site_id:
@@ -650,11 +652,12 @@ def list_rentals(site_id: int = 0, status: str = "", mine: int = 0,
     if status:
         sql += " AND r.status=?"
         args.append(status)
-    if mine or user["role"] != "admin":
-        # 従業員: 自分の記録＋現場のレンタル中一覧のみ
-        if not (status == "active" and site_id):
-            sql += " AND r.created_by=?"
-            args.append(user["id"])
+    if mine:
+        sql += " AND r.created_by=?"
+        args.append(user["id"])
+    if month:  # その月に借りていた記録（月をまたぐレンタルも含む）
+        sql += " AND r.start_date <= ? AND (r.returned_date IS NULL OR r.returned_date >= ?)"
+        args += [f"{month}-31", f"{month}-01"]
     if today:
         sql += " AND r.created_at LIKE ?"
         args.append(f"{now_str()[:10]}%")
@@ -774,8 +777,6 @@ async def update_rental(rid: int, request: Request, user=Depends(current_user)):
         row = conn.execute("SELECT * FROM rentals WHERE id=? AND deleted=0", (rid,)).fetchone()
         if not row:
             raise HTTPException(404, "レンタル記録が見つかりません")
-        if user["role"] != "admin" and row["created_by"] != user["id"]:
-            raise HTTPException(403, "自分が登録した記録だけ修正できます")
         errors = {}
         updates = {}
         if "qty" in body:
@@ -791,12 +792,6 @@ async def update_rental(rid: int, request: Request, user=Depends(current_user)):
                 v = parse_date(body[f], f, errors, label)
                 if v:
                     updates[f] = v.isoformat()
-        # 従業員は単価を変更できない
-        if user["role"] == "admin":
-            vals = _price_fields(body, errors)
-            for f, v in vals.items():
-                if body.get(f) not in (None, ""):
-                    updates[f] = v
         if errors:
             return err(errors)
         if "returned_date" in updates:
@@ -820,8 +815,6 @@ def delete_rental(rid: int, request: Request, user=Depends(current_user)):
         row = conn.execute("SELECT * FROM rentals WHERE id=? AND deleted=0", (rid,)).fetchone()
         if not row:
             raise HTTPException(404, "レンタル記録が見つかりません")
-        if user["role"] != "admin" and row["created_by"] != user["id"]:
-            raise HTTPException(403, "自分が登録した記録だけ削除できます")
         conn.execute("UPDATE rentals SET deleted=1 WHERE id=?", (rid,))
         audit(conn, user, "レンタル記録削除", "rental", rid,
               before={"item": row["item_name"], "qty": row["qty"]}, device=device_of(request))
@@ -901,19 +894,25 @@ async def create_waste(request: Request, user=Depends(current_user)):
 
 
 @app.get("/api/waste")
-def list_waste(site_id: int = 0, today: int = 0, user=Depends(current_user)):
+def list_waste(site_id: int = 0, today: int = 0, month: str = "",
+               mine: int = 0, user=Depends(current_user)):
     conn = get_db()
-    sql = ("SELECT w.*, s.name site_name, h.name hauler_name, d2.name disposal_name "
+    sql = ("SELECT w.*, s.name site_name, h.name hauler_name, d2.name disposal_name, "
+           "u.display_name creator "
            "FROM waste_records w LEFT JOIN sites s ON s.id=w.site_id "
            "LEFT JOIN vendors h ON h.id=w.hauler_id LEFT JOIN vendors d2 ON d2.id=w.disposal_id "
+           "LEFT JOIN users u ON u.id=w.created_by "
            "WHERE w.deleted=0")
     args = []
     if site_id:
         sql += " AND w.site_id=?"
         args.append(site_id)
-    if user["role"] != "admin":
+    if mine:
         sql += " AND w.created_by=?"
         args.append(user["id"])
+    if month:
+        sql += " AND w.out_date LIKE ?"
+        args.append(f"{month}%")
     if today:
         sql += " AND w.created_at LIKE ?"
         args.append(f"{now_str()[:10]}%")
@@ -953,8 +952,6 @@ async def update_waste(wid: int, request: Request, user=Depends(current_user)):
         row = conn.execute("SELECT * FROM waste_records WHERE id=? AND deleted=0", (wid,)).fetchone()
         if not row:
             raise HTTPException(404, "廃棄物記録が見つかりません")
-        if user["role"] != "admin" and row["created_by"] != user["id"]:
-            raise HTTPException(403, "自分が登録した記録だけ修正できます")
         errors = {}
         updates = {}
         if body.get("out_date"):
@@ -971,7 +968,7 @@ async def update_waste(wid: int, request: Request, user=Depends(current_user)):
         for f in ("waste_type", "unit", "slip_no"):
             if body.get(f) is not None:
                 updates[f] = body[f]
-        if user["role"] == "admin" and body.get("amount") not in (None, ""):
+        if body.get("amount") not in (None, ""):
             try:
                 updates["amount"] = int(body["amount"])
             except (TypeError, ValueError):
@@ -997,8 +994,6 @@ def delete_waste(wid: int, request: Request, user=Depends(current_user)):
         row = conn.execute("SELECT * FROM waste_records WHERE id=? AND deleted=0", (wid,)).fetchone()
         if not row:
             raise HTTPException(404, "廃棄物記録が見つかりません")
-        if user["role"] != "admin" and row["created_by"] != user["id"]:
-            raise HTTPException(403, "自分が登録した記録だけ削除できます")
         conn.execute("UPDATE waste_records SET deleted=1 WHERE id=?", (wid,))
         audit(conn, user, "廃棄物記録削除", "waste", wid,
               before={"type": row["waste_type"], "qty": row["qty"]}, device=device_of(request))
@@ -1049,9 +1044,6 @@ def list_photos(target_type: str = "", target_id: int = 0, user=Depends(current_
     if target_id:
         sql += " AND target_id=?"
         args.append(target_id)
-    if user["role"] != "admin" and not target_id:
-        sql += " AND taken_by=?"
-        args.append(user["id"])
     rows = [dict(r) for r in conn.execute(sql + " ORDER BY sort_order,id", args)]
     conn.close()
     return rows
@@ -1064,8 +1056,6 @@ def delete_photo(pid: int, request: Request, user=Depends(current_user)):
         row = conn.execute("SELECT * FROM photos WHERE id=?", (pid,)).fetchone()
         if not row:
             raise HTTPException(404, "写真が見つかりません")
-        if user["role"] != "admin" and row["taken_by"] != user["id"]:
-            raise HTTPException(403, "自分が撮影した写真だけ削除できます")
         conn.execute("UPDATE photos SET deleted=1 WHERE id=?", (pid,))
         audit(conn, user, "写真削除", row["target_type"], row["target_id"],
               device=device_of(request))
@@ -1181,7 +1171,7 @@ def month_rows(conn, month: str):
 
 
 @app.get("/api/admin/summary")
-def admin_summary(month: str, user=Depends(admin_user)):
+def admin_summary(month: str, user=Depends(current_user)):
     if not re.match(r"^\d{4}-\d{2}$", month):
         raise HTTPException(400, "月は YYYY-MM 形式で指定してください")
     conn = get_db()
@@ -1210,7 +1200,7 @@ def admin_summary(month: str, user=Depends(admin_user)):
 
 
 @app.get("/api/admin/export/csv")
-def export_csv(month: str, user=Depends(admin_user)):
+def export_csv(month: str, user=Depends(current_user)):
     conn = get_db()
     rentals, waste = month_rows(conn, month)
     conn.close()
@@ -1233,7 +1223,7 @@ def export_csv(month: str, user=Depends(admin_user)):
 
 
 @app.get("/api/admin/export/xlsx")
-def export_xlsx(month: str, user=Depends(admin_user)):
+def export_xlsx(month: str, user=Depends(current_user)):
     from openpyxl import Workbook
     conn = get_db()
     rentals, waste = month_rows(conn, month)
@@ -1261,7 +1251,7 @@ def export_xlsx(month: str, user=Depends(admin_user)):
 
 
 @app.get("/api/admin/export/pdf")
-def export_pdf(month: str, user=Depends(admin_user)):
+def export_pdf(month: str, user=Depends(current_user)):
     """印刷用HTML（ブラウザの印刷→PDF保存で利用）。"""
     conn = get_db()
     rentals, waste = month_rows(conn, month)
@@ -1291,7 +1281,7 @@ td,th{{border:1px solid #999;padding:6px;font-size:13px}}h1{{font-size:20px}}
 
 
 @app.get("/api/admin/backup")
-def backup(user=Depends(admin_user)):
+def backup(user=Depends(current_user)):
     conn = get_db()
     tables = ["users", "company", "sites", "vendors", "price_master", "rentals",
               "rental_extensions", "waste_records", "photos", "delete_requests",
@@ -1311,7 +1301,7 @@ def backup(user=Depends(admin_user)):
 
 
 @app.get("/api/admin/audit")
-def audit_list(limit: int = 200, user=Depends(admin_user)):
+def audit_list(limit: int = 200, user=Depends(current_user)):
     conn = get_db()
     rows = [dict(r) for r in conn.execute(
         "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (min(limit, 1000),))]
@@ -1320,7 +1310,7 @@ def audit_list(limit: int = 200, user=Depends(admin_user)):
 
 
 @app.get("/api/admin/company")
-def get_company(user=Depends(admin_user)):
+def get_company(user=Depends(current_user)):
     conn = get_db()
     row = conn.execute("SELECT * FROM company WHERE id=1").fetchone()
     conn.close()
@@ -1328,7 +1318,7 @@ def get_company(user=Depends(admin_user)):
 
 
 @app.put("/api/admin/company")
-async def update_company(request: Request, user=Depends(admin_user)):
+async def update_company(request: Request, user=Depends(current_user)):
     body = await request.json()
     conn = get_db()
     try:
@@ -1363,7 +1353,7 @@ IMPORT_COLS = {"品名": "name", "商品コード": "code", "規格": "spec",
 
 @app.post("/api/admin/import/upload")
 async def import_upload(request: Request, file: UploadFile = File(...),
-                        user=Depends(admin_user)):
+                        user=Depends(current_user)):
     ext = os.path.splitext(file.filename or "")[1].lower()
     fname = f"import_{secrets.token_hex(6)}{ext}"
     path = os.path.join(UPLOADS, fname)
@@ -1426,7 +1416,7 @@ async def import_upload(request: Request, file: UploadFile = File(...),
 
 
 @app.get("/api/admin/import/batches")
-def import_batches(user=Depends(admin_user)):
+def import_batches(user=Depends(current_user)):
     conn = get_db()
     rows = []
     for b in conn.execute("SELECT * FROM price_import_batches ORDER BY id DESC"):
@@ -1440,7 +1430,7 @@ def import_batches(user=Depends(admin_user)):
 
 
 @app.get("/api/admin/import/batches/{bid}")
-def import_batch(bid: int, user=Depends(admin_user)):
+def import_batch(bid: int, user=Depends(current_user)):
     conn = get_db()
     b = conn.execute("SELECT * FROM price_import_batches WHERE id=?", (bid,)).fetchone()
     if not b:
@@ -1453,7 +1443,7 @@ def import_batch(bid: int, user=Depends(admin_user)):
 
 
 @app.post("/api/admin/import/rows")
-async def import_row_add(request: Request, user=Depends(admin_user)):
+async def import_row_add(request: Request, user=Depends(current_user)):
     body = await request.json()
     if not body.get("batch_id"):
         return err({"batch_id": "取込データを選んでください"})
@@ -1481,7 +1471,7 @@ async def import_row_add(request: Request, user=Depends(admin_user)):
 
 
 @app.put("/api/admin/import/rows/{rid}")
-async def import_row_edit(rid: int, request: Request, user=Depends(admin_user)):
+async def import_row_edit(rid: int, request: Request, user=Depends(current_user)):
     body = await request.json()
     errors = {}
     vals = _price_fields(body, errors)
@@ -1507,7 +1497,7 @@ async def import_row_edit(rid: int, request: Request, user=Depends(admin_user)):
 
 
 @app.post("/api/admin/import/rows/{rid}/approve")
-def import_row_approve(rid: int, request: Request, user=Depends(admin_user)):
+def import_row_approve(rid: int, request: Request, user=Depends(current_user)):
     conn = get_db()
     try:
         row = conn.execute("SELECT * FROM price_import_rows WHERE id=?", (rid,)).fetchone()
@@ -1535,7 +1525,7 @@ def import_row_approve(rid: int, request: Request, user=Depends(admin_user)):
 
 
 @app.post("/api/admin/import/rows/{rid}/reject")
-def import_row_reject(rid: int, user=Depends(admin_user)):
+def import_row_reject(rid: int, user=Depends(current_user)):
     conn = get_db()
     conn.execute("UPDATE price_import_rows SET status='rejected' WHERE id=?", (rid,))
     conn.commit()

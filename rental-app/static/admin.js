@@ -1,98 +1,25 @@
 /* 管理者用UI（ミニマル版：記録一覧・現場・単価・集計・従業員・設定） */
 "use strict";
 
-const A = { tab: "rentals", month: new Date().toISOString().slice(0, 7) };
+const A = { tab: "summary", month: new Date().toISOString().slice(0, 7) };
 
 function renderAdmin() {
-  S.view = "admin";
+  S.view = "menu";
   document.body.classList.add("admin-wide");
-  const tabs = [["rentals", "レンタル記録"], ["waste", "廃棄物記録"], ["sites", "現場"],
-    ["prices", "料金マスター"], ["import", "単価表取込"], ["summary", "月別集計・出力"],
-    ["users", "従業員"], ["company", "設定"]];
+  const tabs = [["summary", "月別集計・出力"], ["sites", "現場"], ["prices", "料金マスター"],
+    ["import", "単価表取込"], ["users", "利用者"], ["company", "設定"]];
   $app().innerHTML = `
-  <h1>管理者画面</h1>
+  <button class="backlink" onclick="renderHome()">← ホームへ</button>
+  <h1>メニュー</h1>
   <div class="tabs">${tabs.map(([k, l]) =>
     `<button class="tab ${A.tab === k ? "sel" : ""}" onclick="A.tab='${k}';renderAdmin()">${l}</button>`).join("")}
     <button class="tab" onclick="logout()">ログアウト</button></div>
   <div id="admin-body">読み込み中…</div>`;
-  ({ rentals: () => adRecords("rental"), waste: () => adRecords("waste"),
-    sites: adSites, prices: adPrices, import: adImport, summary: adSummary,
+  ({ sites: adSites, prices: adPrices, import: adImport, summary: adSummary,
     users: adUsers, company: adCompany })[A.tab]();
 }
 const $b = () => document.getElementById("admin-body");
 const yenOr = (n) => n == null ? "—" : n.toLocaleString() + "円";
-
-async function adRecords(type) {
-  const url = type === "rental" ? "/api/rentals" : "/api/waste";
-  const { data: rows } = await api(url);
-  window.__adDel = async (id, label) => {
-    if (!confirm(`「${label}」の記録を削除しますか？`)) return;
-    await api(`${url}/${id}`, { method: "DELETE" });
-    adRecords(type);
-  };
-  window.__editAmount = async (id) => {
-    const a = prompt("金額（円・整数）を入力してください");
-    if (a === null) return;
-    const r = await put(`/api/waste/${id}`, { amount: a });
-    if (!r.ok) alert(Object.values(r.data.errors || {})[0]);
-    adRecords(type);
-  };
-  window.__adFixReturn = (id, cur) => {
-    document.getElementById(`aret-${id}`).innerHTML = `
-      <input type="date" id="aret-in-${id}" value="${cur || ""}" style="min-height:40px;width:160px">
-      <button class="btn small green" onclick="__adFixReturnSave(${id})">保存</button>`;
-  };
-  window.__adFixReturnSave = async (id) => {
-    const val = document.getElementById(`aret-in-${id}`).value;
-    if (!val) return alert("返却日を選んでください");
-    const r = await put(`/api/rentals/${id}`, { returned_date: val });
-    if (!r.ok) return alert(Object.values(r.data.errors || {})[0] || "保存できませんでした");
-    adRecords("rental");
-  };
-  if (type === "rental") {
-    // 現場ごとにまとめて表示
-    const groups = {};
-    rows.forEach(r => (groups[r.site_name || "（現場未設定）"] ||= []).push(r));
-    const blocks = Object.entries(groups).map(([site, list]) => {
-      const total = list.reduce((s, r) => s + (r.amount_est || 0), 0);
-      return `
-      <h2 style="margin-top:20px">${esc(site)}
-        <span class="muted" style="font-weight:600">計 ${total.toLocaleString()}円（${list.length}件）</span></h2>
-      <div style="overflow-x:auto"><table class="data"><tr>
-        <th>商品</th><th class="num">数量</th><th>開始</th><th>返却</th>
-        <th class="num">金額（自動計算）</th><th></th></tr>
-      ${list.map(r => `<tr>
-        <td>${esc(r.item_name)}<br><small class="muted">${esc(r.spec || "")}</small></td>
-        <td class="num">${r.qty}</td>
-        <td>${fmtShort(r.start_date)}</td>
-        <td><span id="aret-${r.id}">${r.returned_date
-          ? `${fmtShort(r.returned_date)}
-             <button class="btn small secondary" onclick="__adFixReturn(${r.id},'${r.returned_date}')">修正</button>`
-          : `<span class='badge green'>レンタル中</span>${r.due_date ? " 予定" + fmtShort(r.due_date) : ""}
-             <button class="btn small green" onclick="__adFixReturn(${r.id},'')">返却にする</button>`}</span></td>
-        <td class="num"><b>${yenOr(r.amount_est)}</b></td>
-        <td><button class="btn small red" onclick="__adDel(${r.id},'${esc(r.item_name)}')">削除</button></td></tr>`).join("")}
-      </table></div>`;
-    }).join("");
-    $b().innerHTML = `<h2>レンタル記録（現場ごと）</h2>
-    <p class="muted">金額は自動計算（レンタル中は本日までの概算）。「返却にする」で返却日を入力できます</p>
-    ${blocks || "<p class='muted'>まだ記録がありません</p>"}`;
-  } else {
-    $b().innerHTML = `<h2>廃棄物記録</h2>
-    <p class="muted">金額欄をタップすると処分費を入力できます（任意）</p>
-    <div style="overflow-x:auto"><table class="data"><tr>
-      <th>現場</th><th>搬出日</th><th>種類</th><th class="num">数量</th><th>運搬</th>
-      <th>処分先</th><th class="num">金額</th><th></th></tr>
-    ${rows.map(x => `<tr>
-      <td>${esc(x.site_name)}</td><td>${fmtShort(x.out_date)}</td><td>${esc(x.waste_type)}</td>
-      <td class="num">${x.qty}${esc(x.unit)}</td><td>${esc(x.hauler_name || "")}</td>
-      <td>${esc(x.disposal_name || "")}</td>
-      <td class="num" onclick="__editAmount(${x.id})" style="cursor:pointer">
-        ${x.amount != null ? "<b>" + x.amount.toLocaleString() + "円</b>" : "（入力）"}</td>
-      <td><button class="btn small red" onclick="__adDel(${x.id},'${esc(x.waste_type)}')">削除</button></td></tr>`).join("")}
-    </table></div>`;
-  }
-}
 
 async function adSites() {
   const { data: sites } = await api("/api/sites");
@@ -297,7 +224,7 @@ async function adUsers() {
       name: v("us-name"), display_name: v("us-disp") || v("us-name"),
       login_id: v("us-login"), temp_password: v("us-pw") });
     if (!r.ok) return showErrors(r.data.errors);
-    alert("従業員を登録しました。ログインIDと仮パスワードを本人に伝えてください。初回ログイン時に本人がパスワードを変更します");
+    alert("利用者を登録しました。ログインIDと仮パスワードを本人に伝えてください。初回ログイン時に本人がパスワードを変更します");
     adUsers();
   };
   window.__userToggle = async (id) => { await post(`/api/users/${id}/toggle_active`, {}); adUsers(); };
@@ -308,13 +235,13 @@ async function adUsers() {
     if (r.ok) alert("仮パスワードを再発行しました");
     adUsers();
   };
-  $b().innerHTML = `<h2>従業員</h2>
+  $b().innerHTML = `<h2>利用者</h2>
   <div class="card"><div class="flexrow">
     <input id="us-name" data-field="name" placeholder="氏名">
     <input id="us-disp" data-field="display_name" placeholder="表示名">
     <input id="us-login" data-field="login_id" placeholder="ログインID" autocapitalize="none">
     <input id="us-pw" data-field="temp_password" placeholder="仮パスワード">
-    <button class="btn small" onclick="__userAdd()">従業員を追加</button></div></div>
+    <button class="btn small" onclick="__userAdd()">利用者を追加</button></div></div>
   <table class="data"><tr><th>氏名</th><th>表示名</th><th>ログインID</th><th>権限</th>
     <th>状態</th><th></th></tr>
   ${users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.display_name)}</td>
