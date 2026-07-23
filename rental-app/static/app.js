@@ -42,6 +42,7 @@ const ICONS = {
   check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
   alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
 };
 const icon = (n, size = 24) =>
   `<svg class="icn-svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" ` +
@@ -149,8 +150,7 @@ async function boot() {
   S.user = data.user;
   if (data.user.must_change_password) return renderChangePassword(true);
   S.meta = (await api("/api/meta")).data;
-  if (data.user.role === "admin") return renderAdmin();
-  renderHome();
+  renderHome();  // 役割の区別なし：全員同じ画面
 }
 
 /* ---------------- 初期セットアップ ---------------- */
@@ -218,6 +218,7 @@ function renderChangePassword(first) {
 /* ---------------- 従業員ホーム ---------------- */
 async function renderHome() {
   S.view = "home";
+  document.body.classList.remove("admin-wide");
   const { data: h } = await api("/api/home");
   const now = new Date();
   const days = ["日","月","火","水","木","金","土"];
@@ -238,8 +239,8 @@ async function renderHome() {
     <button class="bigbtn" onclick="startReturn()"><span class="icn tint-green">${icon("return", 26)}</span>レンタル返却</button>
     <button class="bigbtn" onclick="startExtend()"><span class="icn tint-orange">${icon("calplus", 26)}</span>レンタル延長</button>
     <button class="bigbtn" onclick="startWaste()"><span class="icn tint-purple">${icon("trash", 26)}</span>廃棄物を登録</button>
-    <button class="bigbtn" style="grid-column:1/-1;min-height:76px;flex-direction:row"
-      onclick="renderToday()"><span class="icn tint-teal">${icon("clip", 26)}</span>記録を確認する</button>
+    <button class="bigbtn" onclick="renderLedger()"><span class="icn tint-teal">${icon("clip", 26)}</span>記録簿</button>
+    <button class="bigbtn" onclick="renderAdmin()"><span class="icn tint-slate">${icon("gear", 26)}</span>メニュー</button>
   </div>
   <button class="backlink" onclick="logout()">ログアウト</button>`;
 }
@@ -843,23 +844,23 @@ async function renderWasteStep() {
   });
 }
 
-/* ================= 記録の確認 ================= */
-async function renderToday() {
+/* ================= 記録簿（月単位・現場ごと・入力者表示） ================= */
+async function renderLedger() {
+  S.ledgerMonth = S.ledgerMonth || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+  const m = S.ledgerMonth;
   const [{ data: rentals }, { data: waste }] = await Promise.all([
-    api("/api/rentals?mine=1"), api("/api/waste")]);
+    api(`/api/rentals?month=${m}`), api(`/api/waste?month=${m}`)]);
   const drafts = ["rental", "return", "extend", "waste"].filter(k => draftLoad(k));
   const draftLabel = { rental: "レンタル開始（入力途中）", return: "レンタル返却（入力途中）",
     extend: "レンタル延長（入力途中）", waste: "廃棄物登録（入力途中）" };
-  const resume = { rental: () => startRental(true), return: () => startReturn(true),
+  window.__resume = { rental: () => startRental(true), return: () => startReturn(true),
     extend: () => startExtend(), waste: () => startWaste(true) };
-  window.__resume = resume;
   window.__delRec = async (type, id, label) => {
     if (!confirm(`「${label}」の記録を削除しますか？`)) return;
-    const url = type === "rental" ? `/api/rentals/${id}` : `/api/waste/${id}`;
-    const r = await api(url, { method: "DELETE" });
-    if (r.ok) renderToday();
+    const r = await api(type === "rental" ? `/api/rentals/${id}` : `/api/waste/${id}`,
+      { method: "DELETE" });
+    if (r.ok) renderLedger();
   };
-  // 返却日のあとから修正（タップで日付入力に切替）
   window.__fixReturn = (id, cur) => {
     document.getElementById(`ret-${id}`).innerHTML = `
       <input type="date" id="ret-in-${id}" value="${cur || ""}" style="min-height:44px;width:170px">
@@ -870,28 +871,59 @@ async function renderToday() {
     if (!val) return alert("返却日を選んでください");
     const r = await put(`/api/rentals/${id}`, { returned_date: val });
     if (!r.ok) return alert(Object.values(r.data.errors || {})[0] || "保存できませんでした");
-    renderToday();
+    renderLedger();
   };
+  window.__wasteAmount = async (id) => {
+    const a = prompt("処分費（円・整数）を入力してください");
+    if (a === null) return;
+    const r = await put(`/api/waste/${id}`, { amount: a });
+    if (!r.ok) return alert(Object.values(r.data.errors || {})[0]);
+    renderLedger();
+  };
+  // 現場ごとにまとめる
+  const groups = {};
+  rentals.forEach(r => (groups[r.site_name || "（現場未設定）"] ||= { r: [], w: [] }).r.push(r));
+  waste.forEach(x => (groups[x.site_name || "（現場未設定）"] ||= { r: [], w: [] }).w.push(x));
+  const rentalRow = (r) => `
+    <div class="item-row"><div class="grow">
+      <div class="tt">${esc(r.item_name)} × ${r.qty}</div>
+      <div class="sub">${periodText(r)}　<b>${r.amount_est != null ? r.amount_est.toLocaleString() + "円" : ""}</b></div>
+      <div class="sub">入力：${esc(r.creator || "—")}</div>
+      <span id="ret-${r.id}">
+        ${r.returned_date
+          ? `<button class="btn small secondary" onclick="__fixReturn(${r.id},'${r.returned_date}')">返却日を修正</button>`
+          : `<button class="btn small green" onclick="__fixReturn(${r.id},'')">返却にする</button>`}
+      </span></div>
+    <button class="btn small red" onclick="__delRec('rental',${r.id},'${esc(r.item_name)}')">削除</button></div>`;
+  const wasteRow = (x) => `
+    <div class="item-row"><div class="grow">
+      <div class="tt">${esc(x.waste_type)} ${x.qty}${esc(x.unit)}</div>
+      <div class="sub">搬出 ${fmtShort(x.out_date)} ／ ${esc(x.disposal_name || "")} ／
+        <span onclick="__wasteAmount(${x.id})" style="text-decoration:underline;cursor:pointer">
+        ${x.amount != null ? "<b>" + x.amount.toLocaleString() + "円</b>" : "処分費を入力"}</span></div>
+      <div class="sub">入力：${esc(x.creator || "—")}</div></div>
+    <button class="btn small red" onclick="__delRec('waste',${x.id},'${esc(x.waste_type)}')">削除</button></div>`;
+  const blocks = Object.entries(groups).map(([site, g]) => {
+    const total = g.r.reduce((s2, r) => s2 + (r.amount_est || 0), 0) +
+      g.w.reduce((s2, x) => s2 + (x.amount || 0), 0);
+    return `<h2 style="margin-top:18px">${esc(site)}
+      <span class="muted" style="font-weight:600">計 ${total.toLocaleString()}円</span></h2>
+      ${g.r.map(rentalRow).join("")}${g.w.map(wasteRow).join("")}`;
+  }).join("");
   $app().innerHTML = `
   <button class="backlink" onclick="renderHome()">← ホームへ</button>
-  <h1>記録を確認</h1>
-  ${drafts.length ? `<h2>入力途中の下書き</h2>${drafts.map(k => `
+  <h1>記録簿</h1>
+  <div class="flexrow" style="margin:6px 0 10px">
+    <label class="f" style="margin:0">表示する月</label>
+    <input type="month" id="lg-month" value="${m}" style="width:180px">
+  </div>
+  ${drafts.length ? `${drafts.map(k => `
     <div class="item-row" onclick="__resume['${k}']()"><div class="grow">
       <div class="tt">${draftLabel[k]}</div><div class="sub">タップして続きから入力</div></div>
       <span class="badge orange">下書き</span></div>`).join("")}` : ""}
-  <h2>レンタル（${rentals.length}件）</h2>
-  ${rentals.slice(0, 30).map(r => `<div class="item-row"><div class="grow">
-    <div class="tt">${esc(r.item_name)} × ${r.qty}（${esc(r.site_name)}）</div>
-    <div class="sub">${periodText(r)}</div>
-    <span id="ret-${r.id}">${r.returned_date ? `
-      <button class="btn small secondary" onclick="__fixReturn(${r.id},'${r.returned_date}')">返却日を修正</button>` : ""}</span>
-    </div>
-    <button class="btn small red" onclick="__delRec('rental',${r.id},'${esc(r.item_name)}')">削除</button></div>`).join("") ||
-    "<p class='muted'>まだありません</p>"}
-  <h2>廃棄物（${waste.length}件）</h2>
-  ${waste.slice(0, 30).map(x => `<div class="item-row"><div class="grow">
-    <div class="tt">${esc(x.waste_type)} ${x.qty}${esc(x.unit)}（${esc(x.site_name)}）</div>
-    <div class="sub">搬出日 ${fmtDate(x.out_date)} ／ ${esc(x.disposal_name || "")}</div></div>
-    <button class="btn small red" onclick="__delRec('waste',${x.id},'${esc(x.waste_type)}')">削除</button></div>`).join("") ||
-    "<p class='muted'>まだありません</p>"}`;
+  ${blocks || "<p class='muted'>この月の記録はありません</p>"}`;
+  document.getElementById("lg-month").onchange = (e) => {
+    S.ledgerMonth = e.target.value;
+    renderLedger();
+  };
 }

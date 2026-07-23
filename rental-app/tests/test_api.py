@@ -55,15 +55,17 @@ def test_login_wrong_password(clients):
     assert "違います" in r.json()["errors"]["login"]
 
 
-def test_employee_cannot_manage_users_or_prices(clients):
+def test_all_logged_in_users_have_same_access(clients):
+    """役割の区別なし：ログインしていれば全員同じ操作ができる。"""
     _, emp, _ = clients
-    assert emp.get("/api/users").status_code == 403
-    assert emp.post("/api/price_master", json={"name": "x"}).status_code == 403
-    assert emp.get("/api/admin/audit").status_code == 403
-    assert emp.get("/api/admin/summary?month=2026-07").status_code == 403
-    # 現場の編集・削除は管理者のみ（登録は従業員も可）
-    assert emp.put("/api/sites/1", json={"name": "x"}).status_code == 403
-    assert emp.delete("/api/sites/1").status_code == 403
+    assert emp.get("/api/users").status_code == 200
+    assert emp.get("/api/admin/summary?month=2026-07").status_code == 200
+    assert emp.get("/api/admin/audit").status_code == 200
+    # 未ログインは拒否される（外部からは見えない）
+    from fastapi.testclient import TestClient
+    anon = TestClient(M.app)
+    assert anon.get("/api/rentals").status_code == 401
+    assert anon.get("/api/admin/summary?month=2026-07").status_code == 401
 
 
 def test_employee_can_create_site_and_dedup(clients):
@@ -128,11 +130,9 @@ def test_price_master_and_needs_review(clients):
     # 空欄は補完せず要確認
     r = admin.post("/api/price_master", json={"name": "ミニバックホウ", "daily_rate": 8000})
     assert r.json()["needs_review"] == 1
-    # 従業員は閲覧できるが変更できない
+    # 全員が閲覧・変更できる（変更は監査ログに残る）
     items = emp.get("/api/price_master").json()
     assert len(items) >= 2
-    pid = items[0]["id"]
-    assert emp.put(f"/api/price_master/{pid}", json={"daily_rate": 1}).status_code == 403
 
 
 def test_import_xlsx_flow(clients):
@@ -287,22 +287,18 @@ def test_employee_cannot_edit_price_on_rental(clients, rental_ctx):
     assert row["daily_rate"] == 1000 and row["qty"] == 3
 
 
-def test_delete_own_record(clients, rental_ctx):
+def test_delete_record_and_creator_shown(clients, rental_ctx):
     admin, emp, emp2 = clients
     site, item = rental_ctx
     rid = emp.post("/api/rentals", json={
         "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
         "start_date": "2026-07-01", "due_date": "2026-07-02", "skip_photo": True}).json()["id"]
-    # 他人の記録は削除できない
-    assert emp2.delete(f"/api/rentals/{rid}").status_code == 403
-    # 本人は削除できる（論理削除）
-    assert emp.delete(f"/api/rentals/{rid}").status_code == 200
-    assert not [x for x in emp.get("/api/rentals", params={"mine": 1}).json() if x["id"] == rid]
-    # 管理者は誰の記録でも削除できる
-    rid2 = emp.post("/api/rentals", json={
-        "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
-        "start_date": "2026-07-01", "due_date": "2026-07-02", "skip_photo": True}).json()["id"]
-    assert admin.delete(f"/api/rentals/{rid2}").status_code == 200
+    # 誰が入力したかが一覧に表示される
+    row = [x for x in admin.get("/api/rentals").json() if x["id"] == rid][0]
+    assert row["creator"] == "佐藤"
+    # 誰でも削除できる（論理削除・監査ログに残る）
+    assert emp2.delete(f"/api/rentals/{rid}").status_code == 200
+    assert not [x for x in emp.get("/api/rentals").json() if x["id"] == rid]
 
 
 # ---------------- 第4段階: 廃棄物・写真・下書き
@@ -432,13 +428,12 @@ def test_month_spanning_rental_split(clients, rental_ctx):
     assert a["basic"] == 500 and b["basic"] == 0  # 基本料は開始月のみ
 
 
-def test_audit_log_admin_only(clients):
-    admin, emp, _ = clients
+def test_audit_log_records_who_did_what(clients):
+    admin, _, _ = clients
     rows = admin.get("/api/admin/audit").json()
     assert any(r["action"] == "レンタル開始登録" for r in rows)
     row = next(r for r in rows if r["action"] == "レンタル開始登録")
     assert row["user_name"] and row["created_at"]
-    assert emp.get("/api/admin/audit").status_code == 403
 
 
 def test_backup_excludes_password(clients):
@@ -453,4 +448,28 @@ def test_company_settings(clients):
     assert admin.put("/api/admin/company",
                      json={"company_name": "山田造園株式会社", "closing_day": 25}).status_code == 200
     assert admin.get("/api/admin/company").json()["closing_day"] == 25
-    assert emp.get("/api/admin/company").status_code == 403
+    assert emp.get("/api/admin/company").status_code == 200  # 全員閲覧可
+
+
+def test_ledger_month_filter(clients, rental_ctx):
+    """記録簿の月単位フィルタ：その月に借りていたレンタルと、その月に搬出した廃棄物。"""
+    admin, emp, _ = clients
+    site, item = rental_ctx
+    # 6月〜7月をまたぐレンタル
+    rid = emp.post("/api/rentals", json={
+        "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
+        "start_date": "2026-06-20", "due_date": "2026-07-10", "skip_photo": True}).json()["id"]
+    emp.post("/api/rentals/return", json={"ids": [rid], "returned_date": "2026-07-10"})
+    jun = admin.get("/api/rentals", params={"month": "2026-06"}).json()
+    jul = admin.get("/api/rentals", params={"month": "2026-07"}).json()
+    aug = admin.get("/api/rentals", params={"month": "2026-08"}).json()
+    assert any(x["id"] == rid for x in jun)   # 6月に借りていた
+    assert any(x["id"] == rid for x in jul)   # 7月も借りていた
+    assert not any(x["id"] == rid for x in aug)  # 8月にはもう無い
+    # 廃棄物は搬出日の月
+    w = emp.post("/api/waste", json={
+        "site_id": site, "out_date": "2026-06-15", "waste_type": "枝葉", "qty": 1,
+        "unit": "t", "hauler_name": "山川運送", "disposal_name": "グリーンリサイクル",
+        "skip_photo": True}).json()["id"]
+    assert any(x["id"] == w for x in admin.get("/api/waste", params={"month": "2026-06"}).json())
+    assert not any(x["id"] == w for x in admin.get("/api/waste", params={"month": "2026-07"}).json())
