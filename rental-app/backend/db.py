@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS price_import_rows(
 CREATE TABLE IF NOT EXISTS rentals(
   id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL, vendor_id INTEGER,
   item_id INTEGER, item_name TEXT NOT NULL, spec TEXT DEFAULT '', code TEXT DEFAULT '',
-  qty INTEGER NOT NULL, start_date TEXT NOT NULL, due_date TEXT NOT NULL,
+  qty INTEGER NOT NULL, start_date TEXT NOT NULL, due_date TEXT,
   returned_date TEXT,
   daily_rate INTEGER DEFAULT 0, monthly_rate INTEGER DEFAULT 0, basic_fee INTEGER DEFAULT 0,
   support_per_day INTEGER DEFAULT 0, damage_per_day INTEGER DEFAULT 0,

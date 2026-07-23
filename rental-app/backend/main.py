@@ -535,7 +535,8 @@ def toggle_fav_item(iid: int, user=Depends(current_user)):
 # ---------------------------------------------------------------- レンタル
 def rental_snapshot_estimate(row: dict) -> dict | None:
     try:
-        end = row.get("returned_date") or row["due_date"]
+        # 返却日→返却予定日→本日 の順で計算終了日を決める（予定未定のレンタル中は本日まで）
+        end = row.get("returned_date") or row.get("due_date") or now_str()[:10]
         c = calc_rental_charge(
             daily_rate=row["daily_rate"] or 0, monthly_rate=row["monthly_rate"] or 0,
             basic_fee=row["basic_fee"] or 0, support_per_day=row["support_per_day"] or 0,
@@ -567,9 +568,11 @@ async def create_rental(request: Request, user=Depends(current_user)):
         qty = 0
         errors["qty"] = "数量は数字で入力してください"
     start = parse_date(body.get("start_date"), "start_date", errors, "レンタル開始日")
-    due = parse_date(body.get("due_date"), "due_date", errors, "返却予定日")
-    if start and due and due < start:
-        errors["due_date"] = "返却予定日は開始日以降にしてください"
+    due = None
+    if body.get("due_date"):  # 返却予定日は未定でもよい
+        due = parse_date(body.get("due_date"), "due_date", errors, "返却予定日")
+        if start and due and due < start:
+            errors["due_date"] = "返却予定日は開始日以降にしてください"
     if errors:
         return err(errors)
 
@@ -609,7 +612,8 @@ async def create_rental(request: Request, user=Depends(current_user)):
             "damage_per_day,created_by,client_key,created_at)"
             " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (site_id, vendor_id, item_id, snap["name"], snap["spec"], snap["code"], qty,
-             start.isoformat(), due.isoformat(), snap["daily_rate"], snap["monthly_rate"],
+             start.isoformat(), due.isoformat() if due else None,
+             snap["daily_rate"], snap["monthly_rate"],
              snap["basic_fee"], snap["support_per_day"], snap["damage_per_day"],
              user["id"], ck, now_str()))
         rid = conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
@@ -623,7 +627,7 @@ async def create_rental(request: Request, user=Depends(current_user)):
                      ([item_id] + [i for i in recent if i != item_id])[:10])
         audit(conn, user, "レンタル開始登録", "rental", rid,
               after={"site_id": site_id, "item": snap["name"], "qty": qty,
-                     "start": start.isoformat(), "due": due.isoformat()},
+                     "start": start.isoformat(), "due": due.isoformat() if due else "未定"},
               device=device_of(request))
         conn.commit()
         row = dict(conn.execute("SELECT * FROM rentals WHERE id=?", (rid,)).fetchone())
@@ -742,7 +746,7 @@ async def extend_rental(rid: int, request: Request, user=Depends(current_user)):
             raise HTTPException(404, "レンタル記録が見つかりません")
         if row["status"] == "returned":
             return err({"new_due": "返却済みの記録は延長できません"})
-        if new_due <= date.fromisoformat(row["due_date"]):
+        if row["due_date"] and new_due <= date.fromisoformat(row["due_date"]):
             return err({"new_due": "新しい返却予定日は現在の予定日より後にしてください"})
         conn.execute("UPDATE rentals SET due_date=? WHERE id=?", (new_due.isoformat(), rid))
         conn.execute(
@@ -795,6 +799,8 @@ async def update_rental(rid: int, request: Request, user=Depends(current_user)):
                     updates[f] = v
         if errors:
             return err(errors)
+        if "returned_date" in updates:
+            updates["status"] = "returned"  # 返却日を入れたら返却済み扱い
         if updates:
             sets = ",".join(f"{k}=?" for k in updates)
             conn.execute(f"UPDATE rentals SET {sets} WHERE id=?", (*updates.values(), rid))
