@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS company(
 CREATE TABLE IF NOT EXISTS sites(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, contractor TEXT DEFAULT '',
   status TEXT DEFAULT 'active', address TEXT DEFAULT '',
-  deleted INTEGER DEFAULT 0, created_at TEXT);
+  created_by INTEGER, deleted INTEGER DEFAULT 0, created_at TEXT);
 CREATE TABLE IF NOT EXISTS vendors(
   id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN('rental','hauler','disposal')),
   name TEXT NOT NULL, deleted INTEGER DEFAULT 0);
@@ -116,6 +116,11 @@ WF_LABELS = {"unconfirmed": "未確認", "confirmed": "確認済み", "fix_reque
 def init_db() -> None:
     conn = get_db()
     conn.executescript(SCHEMA)
+    # 既存DBへの追加カラム（初期リリース後の変更分）
+    try:
+        conn.execute("ALTER TABLE sites ADD COLUMN created_by INTEGER")
+    except Exception:
+        pass  # 追加済み
     conn.commit()
     conn.close()
 

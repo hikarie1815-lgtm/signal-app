@@ -122,9 +122,10 @@ async function adSites() {
     <input id="st-name" data-field="name" placeholder="現場名" style="flex:2">
     <input id="st-con" placeholder="元請会社名" style="flex:1">
     <button class="btn small" onclick="__siteAdd()">登録</button></div></div>
-  <table class="data"><tr><th>現場名</th><th>元請</th><th>状態</th><th>操作</th></tr>
+  <table class="data"><tr><th>現場名</th><th>元請</th><th>状態</th><th>登録者</th><th>操作</th></tr>
   ${sites.map(s => `<tr><td>${esc(s.name)}</td><td>${esc(s.contractor)}</td>
     <td>${s.status === "active" ? "施工中" : "完了"}</td>
+    <td>${esc(s.creator || "管理者")}</td>
     <td><button class="btn small secondary" onclick="__siteToggle(${s.id},'${s.status}')">
       ${s.status === "active" ? "完了にする" : "施工中に戻す"}</button>
       <button class="btn small red" onclick="__siteDel(${s.id},'${esc(s.name)}')">削除</button></td></tr>`).join("")}
