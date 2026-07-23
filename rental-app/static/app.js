@@ -372,37 +372,45 @@ async function renderRentalStep() {
     return renderSitePick("現場を選択", `1／${total}`, (s) => { w.site = s; w.step = 2; renderRentalStep(); }, () => renderHome());
   }
   if (w.step === 2) {
-    const { data: pick } = await api("/api/items/pickdata");
-    window.__rwPickItem = (it) => { w.item = it; w.step = 3; renderRentalStep(); };
+    const [{ data: pick }, { data: all }] = await Promise.all([
+      api("/api/items/pickdata"), api("/api/price_master")]);
+    window.__rwPickItem = (id) => {
+      const it = all.find(x => x.id === id) || pick.recent.find(x => x.id === id) ||
+        pick.favorites.find(x => x.id === id);
+      w.item = it; w.step = 3; renderRentalStep();
+    };
     const itemRow = (it, tag) => `
-      <div class="item-row" onclick='__rwPickItem(${JSON.stringify(it).replace(/'/g,"&#39;")})'>
+      <div class="item-row" onclick="__rwPickItem(${it.id})">
         <div class="grow"><div class="tt">${esc(it.name)}</div>
-        <div class="sub">${esc(it.spec || "")} ${it.code ? "コード:" + esc(it.code) : ""}</div></div>
-        ${tag ? `<span class="badge">${tag}</span>` : ""}</div>`;
+        <div class="sub">${esc(it.spec || "")}${it.code ? "　" + esc(it.code) : ""}</div></div>
+        ${tag ? `<span class="badge">${tag}</span>` : ""}
+        <span class="muted" style="white-space:nowrap">${it.daily_rate != null ? it.daily_rate.toLocaleString() + "円/日" : ""}</span>
+      </div>`;
+    const listHTML = (q) => {
+      const needle = (q || "").toLowerCase();
+      const hit = (it) => !needle ||
+        `${it.name}${it.spec || ""}${it.code || ""}`.toLowerCase().includes(needle);
+      const tops = needle ? [] : [
+        ...pick.recent.filter(hit).map(i => itemRow(i, "最近")),
+        ...pick.favorites.filter(hit).map(i => itemRow(i, "お気に入り"))];
+      const topIds = new Set([...pick.recent, ...pick.favorites].map(i => i.id));
+      const rest = all.filter(hit).filter(i => needle || !topIds.has(i.id))
+        .map(i => itemRow(i, ""));
+      return [...tops, ...rest].join("") ||
+        "<p class='muted'>見つかりませんでした。検索語を短くしてみてください</p>";
+    };
     $app().innerHTML = `
     <button class="backlink" id="rw-back">← 戻る</button>
     <div class="stephead"><span class="no">2／${total}</span><span class="t">商品を選択</span></div>
-    <div class="flexrow">
-      <input id="rw-code" placeholder="商品コード" inputmode="latin" style="flex:1">
-      <button class="btn small" id="rw-code-go">コードで探す</button>
-      <button class="btn small secondary" id="rw-qr">QR読取</button>
-    </div>
-    <input id="rw-q" placeholder="商品名・規格で検索" style="margin:8px 0" value="${esc(w.itemQ)}">
-    <div id="rw-items">
-      ${pick.recent.map(i => itemRow(i, "最近")).join("")}
-      ${pick.favorites.map(i => itemRow(i, "お気に入り")).join("")}
-    </div>
-    <button class="btn secondary" id="rw-all" style="margin-top:8px">料金表から選ぶ（全商品）</button>`;
+    <input id="rw-q" type="search" placeholder="商品名・規格・コードで絞り込み"
+      value="${esc(w.itemQ)}" style="margin:4px 0 8px">
+    <div id="rw-items">${listHTML(w.itemQ)}</div>
+    ${all.length === 0 ? "<div class='alertband'>料金マスターが空です。管理者画面の「料金マスター」で商品を登録してください</div>" : ""}`;
     document.getElementById("rw-back").onclick = () => { w.step = 1; renderRentalStep(); };
-    const search = async (q) => {
-      const { data: items } = await api(`/api/price_master?q=${encodeURIComponent(q)}`);
-      document.getElementById("rw-items").innerHTML =
-        items.map(i => itemRow(i, "")).join("") || "<p class='muted'>見つかりませんでした</p>";
+    document.getElementById("rw-q").oninput = (e) => {
+      w.itemQ = e.target.value.trim();
+      document.getElementById("rw-items").innerHTML = listHTML(w.itemQ);
     };
-    document.getElementById("rw-q").oninput = (e) => { w.itemQ = e.target.value.trim(); if (w.itemQ) search(w.itemQ); };
-    document.getElementById("rw-all").onclick = () => search("");
-    document.getElementById("rw-code-go").onclick = () => search(v("rw-code"));
-    document.getElementById("rw-qr").onclick = () => qrScan((text) => { document.getElementById("rw-code").value = text; search(text); });
     return;
   }
   if (w.step === 3) {
@@ -414,11 +422,11 @@ async function renderRentalStep() {
       <div class="tt" style="font-weight:800">${esc(it.name)} ${esc(it.spec || "")}</div>
       <div class="muted">コード: ${esc(it.code || "—")}</div>
       <table class="confirm-table" style="margin-top:6px">
-        <tr><td>日割単価</td><td>${it.daily_rate == null ? "要確認" : yen(it.daily_rate)}</td></tr>
-        <tr><td>月極単価</td><td>${it.monthly_rate == null ? "要確認" : yen(it.monthly_rate)}</td></tr>
-        <tr><td>基本料</td><td>${it.basic_fee == null ? "要確認" : yen(it.basic_fee)}</td></tr>
-        <tr><td>サポート料／日</td><td>${it.support_per_day == null ? "要確認" : yen(it.support_per_day)}</td></tr>
-        <tr><td>賠償対策費／日</td><td>${it.damage_per_day == null ? "要確認" : yen(it.damage_per_day)}</td></tr>
+        <tr><td>日割単価</td><td>${it.daily_rate == null ? "未設定" : yen(it.daily_rate)}</td></tr>
+        <tr><td>月極単価</td><td>${it.monthly_rate == null ? "未設定" : yen(it.monthly_rate)}</td></tr>
+        <tr><td>基本料</td><td>${it.basic_fee == null ? "未設定" : yen(it.basic_fee)}</td></tr>
+        <tr><td>サポート料／日</td><td>${it.support_per_day == null ? "未設定" : yen(it.support_per_day)}</td></tr>
+        <tr><td>賠償対策費／日</td><td>${it.damage_per_day == null ? "未設定（0円で計算）" : yen(it.damage_per_day)}</td></tr>
       </table>
       <p class="muted">※ 金額は料金マスターから自動設定されます（確認表示のみ）</p>
     </div>
@@ -485,26 +493,6 @@ async function renderRentalStep() {
       ["ホームへ戻る", () => renderHome()],
     ]);
   });
-}
-
-/* QRコード読取（対応端末のみ / 非対応はコード入力を案内） */
-async function qrScan(onText) {
-  if (!("BarcodeDetector" in window)) {
-    alert("この端末はQR読取に対応していません。商品コードを入力してください");
-    return;
-  }
-  const input = document.createElement("input");
-  input.type = "file"; input.accept = "image/*"; input.capture = "environment";
-  input.onchange = async () => {
-    try {
-      const bmp = await createImageBitmap(input.files[0]);
-      const det = new BarcodeDetector({ formats: ["qr_code", "code_128", "ean_13"] });
-      const codes = await det.detect(bmp);
-      if (codes.length) onText(codes[0].rawValue);
-      else alert("QRコードを読み取れませんでした。もう一度撮影するか、コードを入力してください");
-    } catch (e) { alert("読み取れませんでした。コードを入力してください"); }
-  };
-  input.click();
 }
 
 function renderDone(msg, queued, actions) {
