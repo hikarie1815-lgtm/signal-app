@@ -22,7 +22,8 @@ app = FastAPI(title="建設レンタル・廃棄物処理管理")
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(BASE, "static")
-UPLOADS = os.path.join(STATIC, "uploads")
+# 写真は永続ディスク上（DATA_DIR/uploads）に保存する。データと一緒に残る。
+UPLOADS = D.UPLOADS_DIR
 os.makedirs(UPLOADS, exist_ok=True)
 
 D.init_db()
