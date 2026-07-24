@@ -65,6 +65,12 @@ PAGE2 = [
 PAGES = [("mitsumori_uchiwakesho_1.jpg", "見積内訳書 No.1（造園土木）", PAGE1),
          ("mitsumori_uchiwakesho_2.jpg", "見積内訳書 No.2", PAGE2)]
 
+# 見積内訳書以外の追加商品。回送は日数に関係なく1回いくら＝基本料として計上する。
+# (品名, 規格, 商品コード, 日割, 月極, サポート/日, 基本料, 賠償/日)
+EXTRA_ITEMS = [
+    ("重機回送", "1回（税別）", "KAISO", 0, 0, 0, 35000, 0),
+]
+
 BLANK_NOTE = "原本の環境対策費／日が空欄のため要確認（0円なら0を入力して承認してください）"
 
 
@@ -101,6 +107,12 @@ def seed(uploads_dir: str) -> bool:
                     " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (code, name, spec, daily, monthly, basic, support, damage,
                      needs, f"/uploads/{fname}", now_str()))
+        for name, spec, code, daily, monthly, support, basic, damage in EXTRA_ITEMS:
+            conn.execute(
+                "INSERT INTO price_master(code,name,spec,daily_rate,monthly_rate,"
+                "basic_fee,support_per_day,damage_per_day,needs_review,source_image,created_at)"
+                " VALUES(?,?,?,?,?,?,?,?,0,'',?)",
+                (code, name, spec, daily, monthly, basic, support, damage, now_str()))
         conn.commit()
         return True
     finally:
