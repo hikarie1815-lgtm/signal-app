@@ -398,12 +398,15 @@ async function renderRentalStep() {
         pick.favorites.find(x => x.id === id);
       w.item = it; w.step = 3; renderRentalStep();
     };
+    const priceLabel = (it) => it.daily_rate  // 日割があれば「◯円/日」、無く基本料のみなら「1回◯円」
+      ? it.daily_rate.toLocaleString() + "円/日"
+      : (it.basic_fee ? "1回 " + it.basic_fee.toLocaleString() + "円" : "");
     const itemRow = (it, tag) => `
       <div class="item-row" onclick="__rwPickItem(${it.id})">
         <div class="grow"><div class="tt">${esc(it.name)}</div>
         <div class="sub">${esc(it.spec || "")}${it.code ? "　" + esc(it.code) : ""}</div></div>
         ${tag ? `<span class="badge">${tag}</span>` : ""}
-        <span class="muted" style="white-space:nowrap">${it.daily_rate != null ? it.daily_rate.toLocaleString() + "円/日" : ""}</span>
+        <span class="muted" style="white-space:nowrap">${priceLabel(it)}</span>
       </div>`;
     const cats = ["すべて", ...ITEM_CATS.map(c => c[0]), "その他"]
       .filter(c => c === "すべて" || all.some(i => catOf(i.name) === c));
@@ -467,12 +470,12 @@ async function renderRentalStep() {
   }
   if (w.step === 3) {
     const it = w.item;
-    $app().innerHTML = `
-    <button class="backlink" id="rw-back">← 戻る</button>
-    <div class="stephead"><span class="no">3／${total}</span><span class="t">数量と日付</span></div>
-    <div class="card">
-      <div class="tt" style="font-weight:800">${esc(it.name)} ${esc(it.spec || "")}</div>
-      <div class="muted">コード: ${esc(it.code || "—")}</div>
+    // 回送のように日割・月極が無く基本料だけの商品は「1回いくら」扱い（日付・休止は不要）
+    const oneShot = !it.daily_rate && !it.monthly_rate && !!it.basic_fee;
+    const priceCard = oneShot ? `
+      <table class="confirm-table" style="margin-top:6px">
+        <tr><td>料金</td><td>1回 ${yen(it.basic_fee)}</td></tr></table>
+      <p class="muted">※ 日数に関係なく1回ぶんの料金です（数量＝回数）</p>` : `
       <table class="confirm-table" style="margin-top:6px">
         <tr><td>日割単価</td><td>${it.daily_rate == null ? "未設定" : yen(it.daily_rate)}</td></tr>
         <tr><td>月極単価</td><td>${it.monthly_rate == null ? "未設定" : yen(it.monthly_rate)}</td></tr>
@@ -480,11 +483,19 @@ async function renderRentalStep() {
         <tr><td>サポート料／日</td><td>${it.support_per_day == null ? "未設定" : yen(it.support_per_day)}</td></tr>
         <tr><td>賠償対策費／日</td><td>${it.damage_per_day == null ? "未設定（0円で計算）" : yen(it.damage_per_day)}</td></tr>
       </table>
-      <p class="muted">※ 金額は料金マスターから自動設定されます（確認表示のみ）</p>
+      <p class="muted">※ 金額は料金マスターから自動設定されます（確認表示のみ）</p>`;
+    $app().innerHTML = `
+    <button class="backlink" id="rw-back">← 戻る</button>
+    <div class="stephead"><span class="no">3／${total}</span><span class="t">${oneShot ? "数量" : "数量と日付"}</span></div>
+    <div class="card">
+      <div class="tt" style="font-weight:800">${esc(it.name)} ${esc(it.spec || "")}</div>
+      <div class="muted">コード: ${esc(it.code || "—")}</div>
+      ${priceCard}
     </div>
     <label class="f">レンタル業者</label><input id="rw-vendor" data-field="vendor_id" value="${esc(w.vendor)}" placeholder="例：アクティオ">
-    <label class="f">数量（台数）</label><input id="rw-qty" data-field="qty" type="number" inputmode="numeric" min="1" value="${w.qty}">
-    <label class="f">レンタル開始日</label><input id="rw-start" data-field="start_date" type="date" value="${w.start_date}">
+    <label class="f">${oneShot ? "数量（回数）" : "数量（台数）"}</label><input id="rw-qty" data-field="qty" type="number" inputmode="numeric" min="1" value="${w.qty}">
+    <label class="f">${oneShot ? "日付" : "レンタル開始日"}</label><input id="rw-start" data-field="start_date" type="date" value="${w.start_date}">
+    ${oneShot ? "" : `
     <label class="f">返却予定日（決まっていなければ空欄でOK）</label>
     <input id="rw-due" data-field="due_date" type="date" value="${w.due_date}">
     <p class="muted">実際の返却日は、返したときに「レンタル返却」から登録します</p>
@@ -494,35 +505,39 @@ async function renderRentalStep() {
     <label class="f">その他の休止日（任意・料金に含めません）</label>
     <div class="flexrow"><input id="rw-rest" type="date"><button class="btn small secondary" id="rw-rest-add">追加</button></div>
     <div id="rw-rest-list" class="chips" style="margin-top:6px">${w.rest_days.map(d =>
-      `<span class="chip" data-d="${d}">${fmtShort(d)} ✕</span>`).join("")}</div>
+      `<span class="chip" data-d="${d}">${fmtShort(d)} ✕</span>`).join("")}</div>`}
     <div class="btnrow"><button class="btn green" id="rw-next">この現場のリストに追加</button></div>
     <p class="muted">追加後、同じ現場に別の商品を続けて選べます</p>`;
     document.getElementById("rw-back").onclick = () => { save3(); w.step = 2; renderRentalStep(); };
-    const save3 = () => { w.vendor = v("rw-vendor"); w.qty = v("rw-qty"); w.start_date = v("rw-start"); w.due_date = v("rw-due"); };
-    document.getElementById("rw-sun").onclick = () => { w.skip_sundays = !w.skip_sundays;
-      document.getElementById("rw-sun").classList.toggle("sel", w.skip_sundays);
-      document.querySelector("#rw-sun input").checked = w.skip_sundays; };
-    document.getElementById("rw-rest-add").onclick = () => {
-      const d = document.getElementById("rw-rest").value;
-      if (d && !w.rest_days.includes(d)) { w.rest_days.push(d); w.rest_days.sort(); }
-      save3(); renderRentalStep();
-    };
-    document.getElementById("rw-rest-list").onclick = (e) => {
-      const d = e.target.dataset.d;
-      if (d) { w.rest_days = w.rest_days.filter(x => x !== d); save3(); renderRentalStep(); }
-    };
+    const save3 = () => { w.vendor = v("rw-vendor"); w.qty = v("rw-qty"); w.start_date = v("rw-start");
+      w.due_date = oneShot ? "" : v("rw-due"); };
+    if (!oneShot) {
+      document.getElementById("rw-sun").onclick = () => { w.skip_sundays = !w.skip_sundays;
+        document.getElementById("rw-sun").classList.toggle("sel", w.skip_sundays);
+        document.querySelector("#rw-sun input").checked = w.skip_sundays; };
+      document.getElementById("rw-rest-add").onclick = () => {
+        const d = document.getElementById("rw-rest").value;
+        if (d && !w.rest_days.includes(d)) { w.rest_days.push(d); w.rest_days.sort(); }
+        save3(); renderRentalStep();
+      };
+      document.getElementById("rw-rest-list").onclick = (e) => {
+        const d = e.target.dataset.d;
+        if (d) { w.rest_days = w.rest_days.filter(x => x !== d); save3(); renderRentalStep(); }
+      };
+    }
     document.getElementById("rw-next").onclick = () => {
       save3();
       const errs = {};
       if (!w.vendor) errs.vendor_id = "レンタル業者を入力してください";
       if (!w.qty || +w.qty < 1) errs.qty = "数量は1以上で入力してください";
-      if (!w.start_date) errs.start_date = "レンタル開始日を選んでください";
+      if (!w.start_date) errs.start_date = (oneShot ? "日付" : "レンタル開始日") + "を選んでください";
       if (w.start_date && w.due_date && w.due_date < w.start_date) errs.due_date = "返却予定日は開始日以降にしてください";
       if (Object.keys(errs).length) return showErrors(errs);
       // カートに1台分として追加。業者・日付・休止は次の入力へ引き継ぐ
       w.cart.push({ item: w.item, qty: +w.qty, vendor: w.vendor,
-        start_date: w.start_date, due_date: w.due_date,
-        skip_sundays: w.skip_sundays, rest_days: [...w.rest_days], client_key: uid() });
+        start_date: w.start_date, due_date: oneShot ? w.start_date : w.due_date,
+        skip_sundays: oneShot ? false : w.skip_sundays,
+        rest_days: oneShot ? [] : [...w.rest_days], client_key: uid() });
       w.item = null; w.qty = 1; w.itemQ = "";
       w.step = 2; renderRentalStep();
     };

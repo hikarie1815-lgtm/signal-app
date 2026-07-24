@@ -13,10 +13,12 @@ def test_seed_creates_two_batches_with_41_rows(tmp_path, monkeypatch):
     assert len(batches) == 2
     rows = conn.execute("SELECT * FROM price_import_rows").fetchall()
     assert len(rows) == 25 + 16
-    # 全41商品が料金マスターへ直接登録され、すぐ商品選択で使える
+    # 見積41商品＋追加商品（重機回送）が料金マスターへ登録され、すぐ使える
     masters = conn.execute("SELECT * FROM price_master").fetchall()
-    assert len(masters) == 41
-    assert all(m["source_image"] for m in masters)  # 原本画像が関連付く
+    assert len(masters) == 41 + 1
+    assert all(m["source_image"] for m in masters if m["name"] != "重機回送")
+    kaiso = conn.execute("SELECT * FROM price_master WHERE name='重機回送'").fetchone()
+    assert kaiso["basic_fee"] == 35000 and kaiso["daily_rate"] == 0
     # 原本画像がアップロード先にコピーされ、バッチに関連付く
     for b in batches:
         fname = b["image_path"].split("/")[-1]
