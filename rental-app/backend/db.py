@@ -6,7 +6,13 @@ import os
 import sqlite3
 from datetime import datetime, timezone, timedelta
 
-DB_PATH = os.environ.get("RENTAL_DB", os.path.join(os.path.dirname(__file__), "..", "data.db"))
+# データの保存場所。永続ディスクを使う本番では RENTAL_DATA_DIR=/var/data を指定する。
+# 指定が無ければリポジトリ直下（開発用・無料プランでは再起動で消える）。
+DATA_DIR = os.environ.get("RENTAL_DATA_DIR",
+                          os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_PATH = os.environ.get("RENTAL_DB", os.path.join(DATA_DIR, "data.db"))
+UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
 JST = timezone(timedelta(hours=9))
 
 
