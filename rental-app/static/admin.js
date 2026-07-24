@@ -220,37 +220,32 @@ async function adSummary() {
 async function adUsers() {
   const { data: users } = await api("/api/users");
   window.__userAdd = async () => {
-    const r = await post("/api/users", {
-      name: v("us-name"), display_name: v("us-disp") || v("us-name"),
-      login_id: v("us-login"), temp_password: v("us-pw") });
+    const r = await post("/api/users", { name: v("us-name"), pin: v("us-pin") });
     if (!r.ok) return showErrors(r.data.errors);
-    alert("利用者を登録しました。ログインIDと仮パスワードを本人に伝えてください。初回ログイン時に本人がパスワードを変更します");
+    alert("利用者を登録しました。4桁番号を本人に伝えてください");
     adUsers();
   };
   window.__userToggle = async (id) => { await post(`/api/users/${id}/toggle_active`, {}); adUsers(); };
-  window.__userReset = async (id) => {
-    const pw = prompt("新しい仮パスワードを入力してください");
-    if (!pw) return;
-    const r = await post(`/api/users/${id}/reset_password`, { temp_password: pw });
-    if (r.ok) alert("仮パスワードを再発行しました");
+  window.__userReset = async (id, name) => {
+    const pin = prompt(`${name}さんの新しい4桁番号を入力してください`);
+    if (!pin) return;
+    const r = await post(`/api/users/${id}/reset_password`, { pin });
+    if (!r.ok) return alert(Object.values(r.data.errors || {})[0]);
+    alert("番号を変更しました");
     adUsers();
   };
   $b().innerHTML = `<h2>利用者</h2>
+  <p class="muted">ログインは1人ひとつの4桁番号だけです。番号は他の人と同じにできません。</p>
   <div class="card"><div class="flexrow">
-    <input id="us-name" data-field="name" placeholder="氏名">
-    <input id="us-disp" data-field="display_name" placeholder="表示名">
-    <input id="us-login" data-field="login_id" placeholder="ログインID" autocapitalize="none">
-    <input id="us-pw" data-field="temp_password" placeholder="仮パスワード">
+    <input id="us-name" data-field="name" placeholder="名前" style="flex:2">
+    <input id="us-pin" data-field="pin" placeholder="4桁番号" inputmode="numeric" maxlength="4" style="flex:1">
     <button class="btn small" onclick="__userAdd()">利用者を追加</button></div></div>
-  <table class="data"><tr><th>氏名</th><th>表示名</th><th>ログインID</th><th>権限</th>
-    <th>状態</th><th></th></tr>
-  ${users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.display_name)}</td>
-    <td>${esc(u.login_id)}</td><td>${u.role === "admin" ? "管理者" : "従業員"}</td>
-    <td>${u.active ? "利用中" : "<span class='badge red'>停止中</span>"}
-      ${u.must_change_password ? "<span class='badge orange'>仮PW</span>" : ""}</td>
-    <td>${u.role === "admin" ? "" : `
-      <button class="btn small secondary" onclick="__userToggle(${u.id})">${u.active ? "停止" : "再開"}</button>
-      <button class="btn small secondary" onclick="__userReset(${u.id})">仮PW再発行</button>`}</td></tr>`).join("")}
+  <table class="data"><tr><th>名前</th><th>状態</th><th></th></tr>
+  ${users.map(u => `<tr><td>${esc(u.name)}</td>
+    <td>${u.active ? "利用中" : "<span class='badge red'>停止中</span>"}</td>
+    <td><button class="btn small secondary" onclick="__userReset(${u.id},'${esc(u.name)}')">番号変更</button>
+      ${u.role === "admin" ? "" : `
+      <button class="btn small secondary" onclick="__userToggle(${u.id})">${u.active ? "停止" : "再開"}</button>`}</td></tr>`).join("")}
   </table>`;
 }
 
@@ -258,13 +253,24 @@ async function adCompany() {
   const { data: c } = await api("/api/admin/company");
   window.__compSave = async () => {
     const r = await put("/api/admin/company",
-      { company_name: v("co-name"), closing_day: +v("co-close") || 31 });
-    if (r.ok) alert("保存しました");
+      { company_name: v("co-name"), closing_day: +v("co-close") || 31,
+        skip_sundays: document.getElementById("co-sun").checked });
+    if (r.ok) { alert("保存しました。次に登録するレンタルから反映されます"); S.meta = (await api("/api/meta")).data; }
   };
   $b().innerHTML = `<h2>設定</h2>
   <div class="card" style="max-width:480px">
     <label class="f">会社名</label><input id="co-name" value="${esc(c.company_name || "")}">
     <label class="f">締め日（日）</label><input id="co-close" type="number" inputmode="numeric" value="${c.closing_day || 31}">
+    <label class="f">レンタル料金の休止</label>
+    <label class="chip ${c.skip_sundays ? "sel" : ""}" style="width:100%;justify-content:flex-start" id="co-sun-chip">
+      <input type="checkbox" id="co-sun" ${c.skip_sundays ? "checked" : ""}
+        style="width:26px;height:26px;min-height:26px;margin-right:10px">
+      日曜日は休止（料金に含めない）</label>
+    <p class="muted">これは初期値です。個々のレンタルごとに休止日の変更や、たまの休止日の追加ができます。</p>
     <div class="btnrow"><button class="btn" onclick="__compSave()">保存する</button></div>
   </div>`;
+  document.getElementById("co-sun-chip").onclick = (e) => {
+    if (e.target.id !== "co-sun") document.getElementById("co-sun").checked = !document.getElementById("co-sun").checked;
+    document.getElementById("co-sun-chip").classList.toggle("sel", document.getElementById("co-sun").checked);
+  };
 }

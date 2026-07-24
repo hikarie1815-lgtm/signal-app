@@ -115,6 +115,45 @@ def test_qty_zero_rejected():
         charge(date(2026, 7, 1), date(2026, 7, 5), qty=0)
 
 
+def test_skip_sundays_excludes_charge():
+    # 2026-07-01(水)〜07-14(火) の14日間に日曜が2日(7/5,7/12)
+    c = charge(date(2026, 7, 1), date(2026, 7, 14))
+    assert c.days == 14
+    cs = calc_rental_charge(
+        daily_rate=1000, monthly_rate=8000, basic_fee=500, support_per_day=100,
+        damage_per_day=50, qty=1, start=date(2026, 7, 1), end=date(2026, 7, 14),
+        skip_sundays=True)
+    assert cs.days == 12  # 日曜2日を除外
+    # 12日は10日以上なので月極、サポート・賠償は12日分
+    assert cs.rental == 8000
+    assert cs.support == 100 * 12
+    assert cs.damage == 50 * 12
+    assert cs.basic == 500  # 基本料は休止に関係なく1回
+
+
+def test_rest_days_excluded():
+    # 5日間のうち特定の2日を休止
+    cs = calc_rental_charge(
+        daily_rate=1000, monthly_rate=8000, basic_fee=500, support_per_day=100,
+        damage_per_day=50, qty=1, start=date(2026, 7, 1), end=date(2026, 7, 5),
+        rest_days=["2026-07-02", "2026-07-03"])
+    assert cs.days == 3
+    assert cs.rental == 1000 * 3
+    assert cs.support == 100 * 3
+
+
+def test_skip_sundays_month_split_and_basic():
+    # 月をまたぎ、日曜を除外しても基本料は開始月のみ・合計一致
+    cs = calc_rental_charge(
+        daily_rate=1000, monthly_rate=8000, basic_fee=500, support_per_day=100,
+        damage_per_day=50, qty=2, start=date(2026, 7, 28), end=date(2026, 8, 9),
+        skip_sundays=True)
+    assert sum(m.rental for m in cs.monthly) == cs.rental
+    assert sum(m.subtotal for m in cs.monthly) == cs.total
+    assert sum(m.basic for m in cs.monthly) == cs.basic
+    assert cs.monthly[0].basic == 500 * 2 and all(m.basic == 0 for m in cs.monthly[1:])
+
+
 def test_rental_portion_block_rule():
     assert rental_portion(1000, 8000, 1) == 1000
     assert rental_portion(1000, 8000, 9) == 9000

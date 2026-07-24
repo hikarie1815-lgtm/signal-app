@@ -19,40 +19,41 @@ def clients():
     admin = TestClient(M.app)
     emp = TestClient(M.app)
     emp2 = TestClient(M.app)
-    # 初期セットアップ（管理者1名）
+    # 初期セットアップ（名前・会社名・4桁番号だけ）
     r = admin.post("/api/setup", json={
-        "admin_name": "山田代表", "company_name": "山田造園",
-        "email": "admin@example.com", "password": "adminpass123"})
+        "admin_name": "山田代表", "company_name": "山田造園", "pin": "1111"})
     assert r.status_code == 200, r.text
-    # 従業員2名を登録
-    for c, name, lid in [(emp, "佐藤太郎", "sato"), (emp2, "鈴木次郎", "suzuki")]:
-        r = admin.post("/api/users", json={
-            "name": name, "display_name": name[:2], "login_id": lid,
-            "temp_password": "temp1234"})
+    # 利用者2名を登録（名前＋4桁番号だけ）
+    for c, name, pin in [(emp, "佐藤太郎", "2222"), (emp2, "鈴木次郎", "3333")]:
+        r = admin.post("/api/users", json={"name": name, "pin": pin})
         assert r.status_code == 200, r.text
-        r = c.post("/api/login", json={"login_id": lid, "password": "temp1234"})
-        assert r.status_code == 200
-        assert r.json()["user"]["must_change_password"] == 1
-        # 初回ログイン時に仮パスワードを変更
-        r = c.post("/api/change_password",
-                   json={"old_password": "temp1234", "new_password": f"{lid}newpass1"})
-        assert r.status_code == 200
+        r = c.post("/api/login", json={"pin": pin})
+        assert r.status_code == 200, r.text
     return admin, emp, emp2
 
 
-# ---------------- 第1段階: 認証・権限
+# ---------------- 認証
 def test_setup_only_once(clients):
     admin, _, _ = clients
-    r = admin.post("/api/setup", json={"admin_name": "x", "company_name": "y",
-                                       "email": "z@e.com", "password": "password1"})
+    r = admin.post("/api/setup", json={"admin_name": "x", "company_name": "y", "pin": "9999"})
     assert r.status_code == 400
 
 
-def test_login_wrong_password(clients):
+def test_login_wrong_pin(clients):
     c = TestClient(M.app)
-    r = c.post("/api/login", json={"login_id": "sato", "password": "wrong"})
+    r = c.post("/api/login", json={"pin": "0000"})
     assert r.status_code == 401
-    assert "違います" in r.json()["errors"]["login"]
+    assert "違います" in r.json()["errors"]["pin"]
+    # 成功するとカウンタはリセットされる
+    assert c.post("/api/login", json={"pin": "2222"}).status_code == 200
+
+
+def test_pin_must_be_4_digits_and_unique(clients):
+    admin, _, _ = clients
+    r = admin.post("/api/users", json={"name": "テスト", "pin": "12a"})
+    assert "4桁" in r.json()["errors"]["pin"]
+    r = admin.post("/api/users", json={"name": "テスト", "pin": "2222"})  # 佐藤と同じ
+    assert "使われています" in r.json()["errors"]["pin"]
 
 
 def test_all_logged_in_users_have_same_access(clients):
@@ -79,19 +80,20 @@ def test_employee_can_create_site_and_dedup(clients):
     # 管理者一覧に登録者名が出る
     rows = admin.get("/api/sites").json()
     row = next(x for x in rows if x["id"] == sid)
-    assert row["creator"] == "佐藤"
+    assert row["creator"] == "佐藤太郎"
 
 
-def test_admin_can_stop_employee(clients):
+def test_stop_user_blocks_login(clients):
     admin, _, _ = clients
-    r = admin.post("/api/users", json={"name": "一時", "display_name": "一時",
-                                       "login_id": "temp_user", "temp_password": "temp1234"})
+    r = admin.post("/api/users", json={"name": "一時", "pin": "4444"})
     uid = r.json()["id"]
     r = admin.post(f"/api/users/{uid}/toggle_active")
     assert r.json()["active"] == 0
     c = TestClient(M.app)
-    assert c.post("/api/login", json={"login_id": "temp_user",
-                                      "password": "temp1234"}).status_code == 403
+    assert c.post("/api/login", json={"pin": "4444"}).status_code == 403
+    # 番号変更（忘れたとき）
+    r = admin.post(f"/api/users/{uid}/reset_password", json={"pin": "5555"})
+    assert r.status_code == 200
 
 
 # ---------------- 第2段階: 現場
@@ -203,7 +205,7 @@ def test_rental_create_snapshot_and_estimate(clients, rental_ctx):
     site, item = rental_ctx
     r = emp.post("/api/rentals", json={
         "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 2,
-        "start_date": "2026-07-01", "due_date": "2026-07-05",
+        "start_date": "2026-07-01", "due_date": "2026-07-05", "skip_sundays": False,
         "skip_photo": True, "client_key": "ck-001"})
     assert r.status_code == 200, r.text
     est = r.json()["estimate"]
@@ -261,7 +263,8 @@ def test_extension(clients, rental_ctx):
     site, item = rental_ctx
     rid = emp.post("/api/rentals", json={
         "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
-        "start_date": "2026-07-01", "due_date": "2026-07-05", "skip_photo": True}).json()["id"]
+        "start_date": "2026-07-01", "due_date": "2026-07-05", "skip_sundays": False,
+        "skip_photo": True}).json()["id"]
     # その他はコメント必須
     r = emp.post(f"/api/rentals/{rid}/extend", json={"new_due": "2026-07-20", "reason": "その他"})
     assert "理由" in r.json()["errors"]["comment"]
@@ -295,7 +298,7 @@ def test_delete_record_and_creator_shown(clients, rental_ctx):
         "start_date": "2026-07-01", "due_date": "2026-07-02", "skip_photo": True}).json()["id"]
     # 誰が入力したかが一覧に表示される
     row = [x for x in admin.get("/api/rentals").json() if x["id"] == rid][0]
-    assert row["creator"] == "佐藤"
+    assert row["creator"] == "佐藤太郎"
     # 誰でも削除できる（論理削除・監査ログに残る）
     assert emp2.delete(f"/api/rentals/{rid}").status_code == 200
     assert not [x for x in emp.get("/api/rentals").json() if x["id"] == rid]
@@ -396,7 +399,8 @@ def test_rental_amount_auto_calculated(clients, rental_ctx):
     site, item = rental_ctx
     rid = emp.post("/api/rentals", json={
         "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 2,
-        "start_date": "2026-07-01", "due_date": "2026-07-05", "skip_photo": True}).json()["id"]
+        "start_date": "2026-07-01", "due_date": "2026-07-05", "skip_sundays": False,
+        "skip_photo": True}).json()["id"]
     # 一覧に自動計算金額（いつ・どこで・何を・いくら）が付く
     row = [x for x in admin.get("/api/rentals").json() if x["id"] == rid][0]
     assert row["amount_est"] == (1000 * 5 + 500 + 100 * 5 + 50 * 5) * 2
@@ -421,7 +425,8 @@ def test_month_spanning_rental_split(clients, rental_ctx):
     site, item = rental_ctx
     emp.post("/api/rentals", json={
         "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
-        "start_date": "2026-08-25", "due_date": "2026-09-10", "skip_photo": True})
+        "start_date": "2026-08-25", "due_date": "2026-09-10", "skip_sundays": False,
+        "skip_photo": True})
     aug = admin.get("/api/admin/summary", params={"month": "2026-08"}).json()
     sep = admin.get("/api/admin/summary", params={"month": "2026-09"}).json()
     site_name = "□□団地外構工事"
@@ -451,9 +456,28 @@ def test_backup_excludes_password(clients):
 def test_company_settings(clients):
     admin, emp, _ = clients
     assert admin.put("/api/admin/company",
-                     json={"company_name": "山田造園株式会社", "closing_day": 25}).status_code == 200
+                     json={"company_name": "山田造園株式会社", "closing_day": 25,
+                           "skip_sundays": True}).status_code == 200
     assert admin.get("/api/admin/company").json()["closing_day"] == 25
     assert emp.get("/api/admin/company").status_code == 200  # 全員閲覧可
+
+
+def test_rental_sunday_rest_affects_amount(clients, rental_ctx):
+    admin, emp, _ = clients
+    site, item = rental_ctx
+    # 日曜休止ONで登録（7/1水〜7/14火の間に日曜2日）
+    rid = emp.post("/api/rentals", json={
+        "site_id": site, "vendor_name": "アクティオ", "item_id": item, "qty": 1,
+        "start_date": "2026-07-01", "returned_date": "2026-07-14",
+        "skip_sundays": True, "skip_photo": True}).json()["id"]
+    emp.put(f"/api/rentals/{rid}", json={"returned_date": "2026-07-14"})
+    row = [x for x in admin.get("/api/rentals").json() if x["id"] == rid][0]
+    # 12日ぶん（日曜2日除外）: 月極8000 + サポート100*12 + 賠償50*12 + 基本500
+    assert row["amount_est"] == 8000 + 100 * 12 + 50 * 12 + 500
+    # あとから休止日を1日追加すると11日ぶんに減る
+    emp.put(f"/api/rentals/{rid}", json={"rest_days": ["2026-07-08"]})
+    row = [x for x in admin.get("/api/rentals").json() if x["id"] == rid][0]
+    assert row["amount_est"] == 8000 + 100 * 11 + 50 * 11 + 500
 
 
 def test_ledger_month_filter(clients, rental_ctx):
