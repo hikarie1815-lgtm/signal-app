@@ -148,7 +148,6 @@ async function boot() {
   if (!data.setup_done) return renderSetup();
   if (!data.user) return renderLogin();
   S.user = data.user;
-  if (data.user.must_change_password) return renderChangePassword(true);
   S.meta = (await api("/api/meta")).data;
   renderHome();  // 役割の区別なし：全員同じ画面
 }
@@ -157,26 +156,29 @@ async function boot() {
 function renderSetup() {
   S.view = "setup";
   $app().innerHTML = `
-  <h1>はじめての設定（管理者）</h1>
+  <div style="text-align:center;margin-top:24px">
+    <img src="/static/icon-192.png" alt="" style="width:88px;height:88px;border-radius:20px">
+  </div>
+  <h1 style="text-align:center">はじめての設定</h1>
   <div class="card">
-    <label class="f">管理者名</label><input data-field="admin_name" id="su-name">
+    <label class="f">あなたの名前</label><input data-field="admin_name" id="su-name">
     <label class="f">会社名</label><input data-field="company_name" id="su-comp">
-    <label class="f">メールアドレス</label><input data-field="email" id="su-mail" type="email">
-    <label class="f">パスワード（8文字以上）</label><input data-field="password" id="su-pw" type="password">
-    <div class="btnrow"><button class="btn green" id="su-go">設定してはじめる</button></div>
+    <label class="f">ログイン用の4桁番号（自分で決める）</label>
+    <input data-field="pin" id="su-pin" inputmode="numeric" maxlength="4" pattern="\\d*"
+      style="font-size:1.6rem;letter-spacing:.4em;text-align:center" placeholder="0000">
+    <div class="btnrow"><button class="btn green" id="su-go">はじめる</button></div>
   </div>`;
   document.getElementById("su-go").onclick = (ev) => guard(ev.target, async () => {
     const r = await post("/api/setup", {
-      admin_name: v("su-name"), company_name: v("su-comp"),
-      email: v("su-mail"), password: v("su-pw") });
-    ev.target.textContent = "設定してはじめる";
+      admin_name: v("su-name"), company_name: v("su-comp"), pin: v("su-pin") });
+    ev.target.textContent = "はじめる";
     if (!r.ok) return showErrors(r.data.errors);
     boot();
   });
 }
 const v = (id) => document.getElementById(id).value.trim();
 
-/* ---------------- ログイン ---------------- */
+/* ---------------- ログイン（4桁番号のみ） ---------------- */
 function renderLogin() {
   S.view = "login";
   $app().innerHTML = `
@@ -185,34 +187,26 @@ function renderLogin() {
       box-shadow:0 4px 14px rgba(13,58,125,.3)">
   </div>
   <h1 style="text-align:center">レンタル・廃棄物管理</h1>
-  <div class="card">
-    <label class="f">ログインID</label><input data-field="login" id="li-id" autocapitalize="none">
-    <label class="f">パスワード</label><input data-field="login" id="li-pw" type="password">
+  <div class="card" style="max-width:340px;margin:16px auto">
+    <label class="f" style="text-align:center">自分の4桁番号を入力</label>
+    <input data-field="pin" id="li-pin" type="password" inputmode="numeric" maxlength="4"
+      pattern="\\d*" autocomplete="off"
+      style="font-size:2rem;letter-spacing:.5em;text-align:center" placeholder="••••">
     <div class="btnrow"><button class="btn" id="li-go">ログイン</button></div>
   </div>`;
-  document.getElementById("li-go").onclick = (ev) => guard(ev.target, async () => {
-    const r = await post("/api/login", { login_id: v("li-id"), password: v("li-pw") });
-    ev.target.textContent = "ログイン";
-    if (!r.ok) return showErrors(r.data.errors);
+  const tryLogin = () => guard(document.getElementById("li-go"), async () => {
+    const r = await post("/api/login", { pin: v("li-pin") });
+    document.getElementById("li-go").textContent = "ログイン";
+    if (!r.ok) {
+      document.getElementById("li-pin").value = "";
+      return showErrors(r.data.errors);
+    }
     boot();
   });
-}
-
-function renderChangePassword(first) {
-  S.view = "changepw";
-  $app().innerHTML = `
-  <h1>${first ? "はじめに、仮パスワードを変更してください" : "パスワード変更"}</h1>
-  <div class="card">
-    <label class="f">現在のパスワード</label><input data-field="old_password" id="cp-old" type="password">
-    <label class="f">新しいパスワード（8文字以上）</label><input data-field="new_password" id="cp-new" type="password">
-    <div class="btnrow"><button class="btn green" id="cp-go">変更する</button></div>
-  </div>`;
-  document.getElementById("cp-go").onclick = (ev) => guard(ev.target, async () => {
-    const r = await post("/api/change_password", { old_password: v("cp-old"), new_password: v("cp-new") });
-    ev.target.textContent = "変更する";
-    if (!r.ok) return showErrors(r.data.errors);
-    boot();
-  });
+  document.getElementById("li-go").onclick = tryLogin;
+  const inp = document.getElementById("li-pin");
+  inp.focus();
+  inp.oninput = () => { if (inp.value.length === 4) tryLogin(); };  // 4桁入れたら自動ログイン
 }
 
 /* ---------------- 従業員ホーム ---------------- */
@@ -382,7 +376,8 @@ function bindPhotoStep(state, rerender) {
 function startRental(resume) {
   const d = resume ? draftLoad("rental") : null;
   window.__rw = d || { step: 1, site: null, vendor: "", item: null, itemQ: "", qty: 1,
-    start_date: todayStr(), due_date: "", photos: [], client_key: uid() };
+    start_date: todayStr(), due_date: "", photos: [], client_key: uid(),
+    skip_sundays: S.meta.skip_sundays !== false, rest_days: [] };
   renderRentalStep();
 }
 function rwSave() { const w = window.__rw; draftSave("rental", { ...w, photos: w.photos.filter(p => !p.dataUrl) }); }
@@ -473,9 +468,28 @@ async function renderRentalStep() {
     <label class="f">返却予定日（決まっていなければ空欄でOK）</label>
     <input id="rw-due" data-field="due_date" type="date" value="${w.due_date}">
     <p class="muted">実際の返却日は、返したときに「レンタル返却」から登録します</p>
+    <label class="chip ${w.skip_sundays ? "sel" : ""}" id="rw-sun" style="width:100%;justify-content:flex-start;margin-top:8px">
+      <input type="checkbox" ${w.skip_sundays ? "checked" : ""} style="width:26px;height:26px;min-height:26px;margin-right:10px">
+      日曜日は休止（料金に含めない）</label>
+    <label class="f">その他の休止日（任意・料金に含めません）</label>
+    <div class="flexrow"><input id="rw-rest" type="date"><button class="btn small secondary" id="rw-rest-add">追加</button></div>
+    <div id="rw-rest-list" class="chips" style="margin-top:6px">${w.rest_days.map(d =>
+      `<span class="chip" data-d="${d}">${fmtShort(d)} ✕</span>`).join("")}</div>
     <div class="btnrow"><button class="btn" id="rw-next">次へ（写真）</button></div>`;
     document.getElementById("rw-back").onclick = () => { save3(); w.step = 2; renderRentalStep(); };
     const save3 = () => { w.vendor = v("rw-vendor"); w.qty = v("rw-qty"); w.start_date = v("rw-start"); w.due_date = v("rw-due"); };
+    document.getElementById("rw-sun").onclick = () => { w.skip_sundays = !w.skip_sundays;
+      document.getElementById("rw-sun").classList.toggle("sel", w.skip_sundays);
+      document.querySelector("#rw-sun input").checked = w.skip_sundays; };
+    document.getElementById("rw-rest-add").onclick = () => {
+      const d = document.getElementById("rw-rest").value;
+      if (d && !w.rest_days.includes(d)) { w.rest_days.push(d); w.rest_days.sort(); }
+      save3(); renderRentalStep();
+    };
+    document.getElementById("rw-rest-list").onclick = (e) => {
+      const d = e.target.dataset.d;
+      if (d) { w.rest_days = w.rest_days.filter(x => x !== d); save3(); renderRentalStep(); }
+    };
     document.getElementById("rw-next").onclick = () => {
       save3();
       const errs = {};
@@ -511,6 +525,7 @@ async function renderRentalStep() {
       <tr><td>数量</td><td>${esc(w.qty)}台</td></tr>
       <tr><td>開始日</td><td>${fmtDate(w.start_date)}</td></tr>
       <tr><td>返却予定日</td><td>${w.due_date ? fmtDate(w.due_date) : "未定（返却時に登録）"}</td></tr>
+      <tr><td>休止</td><td>${w.skip_sundays ? "日曜" : "なし"}${w.rest_days.length ? "＋" + w.rest_days.length + "日" : ""}</td></tr>
       <tr><td>写真</td><td>${w.photos.length}枚</td></tr>
     </table>
   </div>
@@ -519,6 +534,7 @@ async function renderRentalStep() {
   document.getElementById("rw-go").onclick = (ev) => guard(ev.target, async () => {
     const body = { site_id: w.site.id, vendor_name: w.vendor, item_id: w.item.id, qty: +w.qty,
       start_date: w.start_date, due_date: w.due_date, client_key: w.client_key,
+      skip_sundays: w.skip_sundays, rest_days: w.rest_days,
       photo_ids: w.photos.filter(p => p.id).map(p => p.id),
       skip_photo: !w.photos.some(p => p.id) };
     const r = await submitOrQueue("/api/rentals", body);
@@ -883,15 +899,35 @@ async function renderLedger() {
   const groups = {};
   rentals.forEach(r => (groups[r.site_name || "（現場未設定）"] ||= { r: [], w: [] }).r.push(r));
   waste.forEach(x => (groups[x.site_name || "（現場未設定）"] ||= { r: [], w: [] }).w.push(x));
+  window.__addRest = async (id) => {
+    const d = prompt("休止する日を入力してください（例 2026-07-06）");
+    if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return d && alert("日付の形式が正しくありません");
+    const cur = (rentals.find(r => r.id === id) || {}).rest_days;
+    let list = [];
+    try { list = JSON.parse(cur || "[]"); } catch (e) {}
+    if (!list.includes(d)) list.push(d);
+    const r = await put(`/api/rentals/${id}`, { rest_days: list });
+    if (r.ok) renderLedger();
+  };
+  const restText = (r) => {
+    let list = [];
+    try { list = JSON.parse(r.rest_days || "[]"); } catch (e) {}
+    const parts = [];
+    if (r.skip_sundays) parts.push("日曜休止");
+    if (list.length) parts.push("休止 " + list.map(fmtShort).join("・"));
+    return parts.join(" ／ ");
+  };
   const rentalRow = (r) => `
     <div class="item-row"><div class="grow">
       <div class="tt">${esc(r.item_name)} × ${r.qty}</div>
       <div class="sub">${periodText(r)}　<b>${r.amount_est != null ? r.amount_est.toLocaleString() + "円" : ""}</b></div>
+      ${restText(r) ? `<div class="sub">${restText(r)}</div>` : ""}
       <div class="sub">入力：${esc(r.creator || "—")}</div>
       <span id="ret-${r.id}">
         ${r.returned_date
           ? `<button class="btn small secondary" onclick="__fixReturn(${r.id},'${r.returned_date}')">返却日を修正</button>`
           : `<button class="btn small green" onclick="__fixReturn(${r.id},'')">返却にする</button>`}
+        <button class="btn small secondary" onclick="__addRest(${r.id})">休止日を追加</button>
       </span></div>
     <button class="btn small red" onclick="__delRec('rental',${r.id},'${esc(r.item_name)}')">削除</button></div>`;
   const wasteRow = (x) => `

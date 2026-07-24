@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS sessions(
   token TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_at TEXT, expires_at TEXT);
 CREATE TABLE IF NOT EXISTS company(
   id INTEGER PRIMARY KEY CHECK(id=1), company_name TEXT, admin_name TEXT,
-  closing_day INTEGER DEFAULT 31, created_at TEXT);
+  closing_day INTEGER DEFAULT 31, skip_sundays INTEGER DEFAULT 1, created_at TEXT);
 CREATE TABLE IF NOT EXISTS sites(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, contractor TEXT DEFAULT '',
   status TEXT DEFAULT 'active', address TEXT DEFAULT '',
@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS rentals(
   returned_date TEXT,
   daily_rate INTEGER DEFAULT 0, monthly_rate INTEGER DEFAULT 0, basic_fee INTEGER DEFAULT 0,
   support_per_day INTEGER DEFAULT 0, damage_per_day INTEGER DEFAULT 0,
+  skip_sundays INTEGER DEFAULT 1, rest_days TEXT DEFAULT '[]',
   status TEXT DEFAULT 'active',
   condition_flags TEXT DEFAULT '{}', condition_comment TEXT DEFAULT '',
   wf_status TEXT DEFAULT 'unconfirmed', wf_reason TEXT DEFAULT '',
@@ -117,10 +118,16 @@ def init_db() -> None:
     conn = get_db()
     conn.executescript(SCHEMA)
     # 既存DBへの追加カラム（初期リリース後の変更分）
-    try:
-        conn.execute("ALTER TABLE sites ADD COLUMN created_by INTEGER")
-    except Exception:
-        pass  # 追加済み
+    for sql in [
+        "ALTER TABLE sites ADD COLUMN created_by INTEGER",
+        "ALTER TABLE company ADD COLUMN skip_sundays INTEGER DEFAULT 1",
+        "ALTER TABLE rentals ADD COLUMN skip_sundays INTEGER DEFAULT 1",
+        "ALTER TABLE rentals ADD COLUMN rest_days TEXT DEFAULT '[]'",
+    ]:
+        try:
+            conn.execute(sql)
+        except Exception:
+            pass  # 追加済み
     conn.commit()
     conn.close()
 

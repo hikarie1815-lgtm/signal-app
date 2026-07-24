@@ -73,6 +73,20 @@ def state(request: Request):
     return {"setup_done": setup_done, "user": user}
 
 
+def _valid_pin(pin, errors):
+    pin = str(pin or "").strip()
+    if not re.match(r"^\d{4}$", pin):
+        errors["pin"] = "4桁の番号を入力してください"
+    return pin
+
+
+def _pin_taken(conn, pin: str, exclude_id: int = 0) -> bool:
+    for u in conn.execute("SELECT id, password_hash FROM users"):
+        if u["id"] != exclude_id and verify_password(pin, u["password_hash"]):
+            return True
+    return False
+
+
 @app.post("/api/setup")
 async def setup(request: Request):
     body = await request.json()
@@ -81,24 +95,21 @@ async def setup(request: Request):
         if conn.execute("SELECT COUNT(*) c FROM users WHERE role='admin'").fetchone()["c"]:
             raise HTTPException(400, "初期設定はすでに完了しています")
         errors = {}
-        for f, label in [("admin_name", "管理者名"), ("company_name", "会社名"),
-                         ("email", "メールアドレス"), ("password", "パスワード")]:
+        for f, label in [("admin_name", "名前"), ("company_name", "会社名")]:
             if not (body.get(f) or "").strip():
                 errors[f] = f"{label}を入力してください"
-        if body.get("password") and len(body["password"]) < 8:
-            errors["password"] = "パスワードは8文字以上にしてください"
+        pin = _valid_pin(body.get("pin"), errors)
         if errors:
             return err(errors)
-        login_id = (body.get("login_id") or body["email"]).strip()
+        name = body["admin_name"].strip()
         conn.execute(
             "INSERT INTO users(role,name,display_name,login_id,email,password_hash,created_at)"
-            " VALUES('admin',?,?,?,?,?,?)",
-            (body["admin_name"], body["admin_name"], login_id, body["email"],
-             hash_password(body["password"]), now_str()))
+            " VALUES('admin',?,?,?,'',?,?)",
+            (name, name, name, hash_password(pin), now_str()))
         conn.execute("INSERT INTO company(id,company_name,admin_name,created_at) VALUES(1,?,?,?)",
-                     (body["company_name"], body["admin_name"], now_str()))
-        uid = conn.execute("SELECT id FROM users WHERE login_id=?", (login_id,)).fetchone()["id"]
-        audit(conn, {"id": uid, "name": body["admin_name"]}, "初期設定", "company", 1,
+                     (body["company_name"], name, now_str()))
+        uid = conn.execute("SELECT id FROM users WHERE name=?", (name,)).fetchone()["id"]
+        audit(conn, {"id": uid, "name": name}, "初期設定", "company", 1,
               after={"company_name": body["company_name"]}, device=device_of(request))
         token = create_session(conn, uid)
         conn.commit()
@@ -109,24 +120,41 @@ async def setup(request: Request):
         conn.close()
 
 
+# 4桁番号の総当たり対策（連続で間違えたIPをしばらく待たせる）
+PIN_FAILS: dict = {}
+FAIL_LIMIT = 8
+FAIL_BLOCK_SEC = 60
+
+
 @app.post("/api/login")
 async def login(request: Request):
     body = await request.json()
+    ip = request.client.host if request.client else "?"
+    import time as _time
+    fails, blocked_until = PIN_FAILS.get(ip, (0, 0))
+    if _time.time() < blocked_until:
+        return err({"pin": "間違いが続いたため少し待ってください（約1分）"}, 429)
+    pin = str(body.get("pin") or "").strip()
     conn = get_db()
     try:
-        row = conn.execute("SELECT * FROM users WHERE login_id=?",
-                           ((body.get("login_id") or "").strip(),)).fetchone()
-        if not row or not verify_password(body.get("password") or "", row["password_hash"]):
-            return err({"login": "ログインIDまたはパスワードが違います"}, 401)
-        if not row["active"]:
-            return err({"login": "このアカウントは停止されています。管理者に連絡してください"}, 403)
-        token = create_session(conn, row["id"])
-        audit(conn, dict(row), "ログイン", "user", row["id"], device=device_of(request))
+        matched = None
+        for row in conn.execute("SELECT * FROM users"):
+            if verify_password(pin, row["password_hash"]):
+                matched = row
+                break
+        if not matched:
+            fails += 1
+            PIN_FAILS[ip] = (fails, _time.time() + FAIL_BLOCK_SEC if fails >= FAIL_LIMIT else 0)
+            return err({"pin": "番号が違います"}, 401)
+        if not matched["active"]:
+            return err({"pin": "この利用者は停止されています"}, 403)
+        PIN_FAILS.pop(ip, None)
+        token = create_session(conn, matched["id"])
+        audit(conn, dict(matched), "ログイン", "user", matched["id"], device=device_of(request))
         conn.commit()
         resp = JSONResponse({"ok": True, "user": {
-            "id": row["id"], "role": row["role"], "name": row["name"],
-            "display_name": row["display_name"],
-            "must_change_password": row["must_change_password"]}})
+            "id": matched["id"], "role": matched["role"], "name": matched["name"],
+            "display_name": matched["display_name"], "must_change_password": 0}})
         resp.set_cookie("session", token, httponly=True, samesite="lax", max_age=86400 * 30)
         return resp
     finally:
@@ -146,20 +174,21 @@ def logout(request: Request):
     return resp
 
 
-@app.post("/api/change_password")
-async def change_password(request: Request, user=Depends(current_user)):
+@app.post("/api/change_pin")
+async def change_pin(request: Request, user=Depends(current_user)):
+    """自分の4桁番号を変更する。"""
     body = await request.json()
-    new = body.get("new_password") or ""
-    if len(new) < 8:
-        return err({"new_password": "新しいパスワードは8文字以上にしてください"})
+    errors = {}
+    pin = _valid_pin(body.get("pin"), errors)
+    if errors:
+        return err(errors)
     conn = get_db()
     try:
-        row = conn.execute("SELECT password_hash FROM users WHERE id=?", (user["id"],)).fetchone()
-        if not verify_password(body.get("old_password") or "", row["password_hash"]):
-            return err({"old_password": "現在のパスワードが違います"})
-        conn.execute("UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
-                     (hash_password(new), user["id"]))
-        audit(conn, user, "パスワード変更", "user", user["id"], device=device_of(request))
+        if _pin_taken(conn, pin, exclude_id=user["id"]):
+            return err({"pin": "この番号はほかの人が使っています。別の番号にしてください"})
+        conn.execute("UPDATE users SET password_hash=? WHERE id=?",
+                     (hash_password(pin), user["id"]))
+        audit(conn, user, "番号変更", "user", user["id"], device=device_of(request))
         conn.commit()
         return {"ok": True}
     finally:
@@ -181,26 +210,23 @@ def list_users(user=Depends(current_user)):
 async def create_user(request: Request, user=Depends(current_user)):
     body = await request.json()
     errors = {}
-    for f, label in [("name", "氏名"), ("display_name", "表示名"),
-                     ("login_id", "ログインID"), ("temp_password", "仮パスワード")]:
-        if not (body.get(f) or "").strip():
-            errors[f] = f"{label}を入力してください"
+    if not (body.get("name") or "").strip():
+        errors["name"] = "名前を入力してください"
+    pin = _valid_pin(body.get("pin"), errors)
     if errors:
         return err(errors)
     conn = get_db()
     try:
-        if conn.execute("SELECT 1 FROM users WHERE login_id=?", (body["login_id"],)).fetchone():
-            return err({"login_id": "このログインIDはすでに使われています"})
+        if _pin_taken(conn, pin):
+            return err({"pin": "この番号はすでに使われています。別の番号にしてください"})
+        name = body["name"].strip()
         conn.execute(
             "INSERT INTO users(role,name,display_name,login_id,email,password_hash,"
-            "must_change_password,created_at) VALUES('employee',?,?,?,?,?,1,?)",
-            (body["name"], body["display_name"], body["login_id"].strip(),
-             body.get("email", ""), hash_password(body["temp_password"]), now_str()))
+            "must_change_password,created_at) VALUES('employee',?,?,?,'',?,0,?)",
+            (name, (body.get("display_name") or name).strip(),
+             f"{name}-{secrets.token_hex(3)}", hash_password(pin), now_str()))
         uid = conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
-        if body.get("sites"):
-            set_pref(conn, uid, "assigned_sites", body["sites"])
-        audit(conn, user, "従業員追加", "user", uid,
-              after={"name": body["name"], "login_id": body["login_id"]},
+        audit(conn, user, "利用者追加", "user", uid, after={"name": name},
               device=device_of(request))
         conn.commit()
         return {"ok": True, "id": uid}
@@ -227,15 +253,19 @@ def toggle_active(uid: int, request: Request, user=Depends(current_user)):
 
 
 @app.post("/api/users/{uid}/reset_password")
-async def reset_password(uid: int, request: Request, user=Depends(current_user)):
+async def reset_pin(uid: int, request: Request, user=Depends(current_user)):
+    """利用者の4桁番号を変更する（忘れたとき用）。"""
     body = await request.json()
-    if not (body.get("temp_password") or "").strip():
-        return err({"temp_password": "仮パスワードを入力してください"})
+    errors = {}
+    pin = _valid_pin(body.get("pin"), errors)
+    if errors:
+        return err(errors)
     conn = get_db()
     try:
-        conn.execute("UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?",
-                     (hash_password(body["temp_password"]), uid))
-        audit(conn, user, "仮パスワード再発行", "user", uid, device=device_of(request))
+        if _pin_taken(conn, pin, exclude_id=uid):
+            return err({"pin": "この番号はすでに使われています。別の番号にしてください"})
+        conn.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(pin), uid))
+        audit(conn, user, "番号再発行", "user", uid, device=device_of(request))
         conn.commit()
         return {"ok": True}
     finally:
@@ -245,10 +275,14 @@ async def reset_password(uid: int, request: Request, user=Depends(current_user))
 # ---------------------------------------------------------------- メタ情報
 @app.get("/api/meta")
 def meta(user=Depends(current_user)):
+    conn = get_db()
+    crow = conn.execute("SELECT skip_sundays FROM company WHERE id=1").fetchone()
+    conn.close()
     return {
         "waste_types": D.WASTE_TYPES, "waste_types_top": D.WASTE_TYPES_TOP,
         "waste_units": D.WASTE_UNITS, "extension_reasons": D.EXTENSION_REASONS,
         "photo_categories": D.PHOTO_CATEGORIES,
+        "skip_sundays": bool(crow["skip_sundays"]) if crow else True,
     }
 
 
@@ -538,11 +572,16 @@ def rental_snapshot_estimate(row: dict) -> dict | None:
     try:
         # 返却日→返却予定日→本日 の順で計算終了日を決める（予定未定のレンタル中は本日まで）
         end = row.get("returned_date") or row.get("due_date") or now_str()[:10]
+        try:
+            rest = json.loads(row["rest_days"]) if row.get("rest_days") else []
+        except (TypeError, ValueError):
+            rest = []
         c = calc_rental_charge(
             daily_rate=row["daily_rate"] or 0, monthly_rate=row["monthly_rate"] or 0,
             basic_fee=row["basic_fee"] or 0, support_per_day=row["support_per_day"] or 0,
             damage_per_day=row["damage_per_day"] or 0, qty=row["qty"],
-            start=date.fromisoformat(row["start_date"]), end=date.fromisoformat(end))
+            start=date.fromisoformat(row["start_date"]), end=date.fromisoformat(end),
+            skip_sundays=bool(row.get("skip_sundays", 1)), rest_days=rest)
         return c.to_dict()
     except (ValueError, KeyError):
         return None
@@ -607,16 +646,19 @@ async def create_rental(request: Request, user=Depends(current_user)):
                     "basic_fee": m["basic_fee"] or 0, "support_per_day": m["support_per_day"] or 0,
                     "damage_per_day": m["damage_per_day"] or 0, "spec": m["spec"],
                     "code": m["code"], "name": m["name"]}
+        crow = conn.execute("SELECT skip_sundays FROM company WHERE id=1").fetchone()
+        default_skip = crow["skip_sundays"] if crow else 1
+        skip_sun = 1 if body.get("skip_sundays", default_skip) else 0
         conn.execute(
             "INSERT INTO rentals(site_id,vendor_id,item_id,item_name,spec,code,qty,"
             "start_date,due_date,daily_rate,monthly_rate,basic_fee,support_per_day,"
-            "damage_per_day,created_by,client_key,created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "damage_per_day,skip_sundays,created_by,client_key,created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (site_id, vendor_id, item_id, snap["name"], snap["spec"], snap["code"], qty,
              start.isoformat(), due.isoformat() if due else None,
              snap["daily_rate"], snap["monthly_rate"],
              snap["basic_fee"], snap["support_per_day"], snap["damage_per_day"],
-             user["id"], ck, now_str()))
+             skip_sun, user["id"], ck, now_str()))
         rid = conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
         for pid in body.get("photo_ids") or []:
             conn.execute("UPDATE photos SET target_type='rental', target_id=? WHERE id=? AND taken_by=?",
@@ -793,6 +835,11 @@ async def update_rental(rid: int, request: Request, user=Depends(current_user)):
                 v = parse_date(body[f], f, errors, label)
                 if v:
                     updates[f] = v.isoformat()
+        if "skip_sundays" in body:
+            updates["skip_sundays"] = 1 if body["skip_sundays"] else 0
+        if "rest_days" in body and isinstance(body["rest_days"], list):
+            updates["rest_days"] = json.dumps(sorted(set(body["rest_days"])),
+                                              ensure_ascii=False)
         if errors:
             return err(errors)
         if "returned_date" in updates:
@@ -1333,9 +1380,12 @@ async def update_company(request: Request, user=Depends(current_user)):
     conn = get_db()
     try:
         before = conn.execute("SELECT * FROM company WHERE id=1").fetchone()
-        conn.execute("UPDATE company SET company_name=?, closing_day=? WHERE id=1",
+        skip = before["skip_sundays"] if before else 1
+        if "skip_sundays" in body:
+            skip = 1 if body["skip_sundays"] else 0
+        conn.execute("UPDATE company SET company_name=?, closing_day=?, skip_sundays=? WHERE id=1",
                      (body.get("company_name", before["company_name"] if before else ""),
-                      body.get("closing_day", before["closing_day"] if before else 31)))
+                      body.get("closing_day", before["closing_day"] if before else 31), skip))
         audit(conn, user, "会社設定変更", "company", 1,
               before=dict(before) if before else None, after=body, device=device_of(request))
         conn.commit()
