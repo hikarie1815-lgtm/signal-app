@@ -375,9 +375,10 @@ function bindPhotoStep(state, rerender) {
 /* ================= レンタル開始ウィザード ================= */
 function startRental(resume) {
   const d = resume ? draftLoad("rental") : null;
-  window.__rw = d || { step: 1, site: null, vendor: "", item: null, itemQ: "", qty: 1,
+  window.__rw = d || { step: 1, site: null, cart: [], vendor: "", item: null, itemQ: "", qty: 1,
     start_date: todayStr(), due_date: "", photos: [], client_key: uid(),
     skip_sundays: S.meta.skip_sundays !== false, rest_days: [] };
+  if (window.__rw.cart === undefined) window.__rw.cart = [];
   renderRentalStep();
 }
 function rwSave() { const w = window.__rw; draftSave("rental", { ...w, photos: w.photos.filter(p => !p.dataUrl) }); }
@@ -422,16 +423,35 @@ async function renderRentalStep() {
       return [...tops, ...rest].join("") ||
         "<p class='muted'>見つかりませんでした。種類ボタンや検索語を変えてみてください</p>";
     };
+    const cartHTML = w.cart.length ? `
+      <div class="card" style="border-color:var(--green)">
+        <div class="tt" style="font-weight:800">${esc(w.site.name)} に追加中（${w.cart.length}件）</div>
+        ${w.cart.map((c, i) => `<div class="flexrow" style="justify-content:space-between">
+          <div>${esc(c.item.name)} ${esc(c.item.spec || "")} × ${c.qty}
+          <span class="muted">（${fmtShort(c.start_date)}〜${c.due_date ? fmtShort(c.due_date) : "未定"}）</span></div>
+          <button class="btn small red" data-rm="${i}">外す</button></div>`).join("")}
+        <div class="btnrow"><button class="btn green" id="rw-tophoto">写真・確認へ進む（${w.cart.length}件）</button></div>
+      </div>` : "";
     $app().innerHTML = `
     <button class="backlink" id="rw-back">← 戻る</button>
-    <div class="stephead"><span class="no">2／${total}</span><span class="t">商品を選択</span></div>
+    <div class="stephead"><span class="no">2／${total}</span><span class="t">商品を選択（何台でも追加できます）</span></div>
+    ${cartHTML}
     <div class="chips" id="rw-cats" style="margin:4px 0">${cats.map(c =>
       `<button class="chip ${w.itemCat === c ? "sel" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>
     <input id="rw-q" type="search" placeholder="2文字でしぼり込み（例：ダンプ、高所、CS）"
       value="${esc(w.itemQ)}" style="margin:4px 0 8px">
     <div id="rw-items">${listHTML()}</div>
-    ${all.length === 0 ? "<div class='alertband'>料金マスターが空です。管理者画面の「料金マスター」で商品を登録してください</div>" : ""}`;
-    document.getElementById("rw-back").onclick = () => { w.step = 1; renderRentalStep(); };
+    ${all.length === 0 ? "<div class='alertband'>料金マスターが空です。メニューの「料金マスター」で商品を登録してください</div>" : ""}`;
+    document.getElementById("rw-back").onclick = () => {
+      if (w.cart.length) { if (!confirm("追加中の商品があります。現場選択に戻ると消えます。よろしいですか？")) return; }
+      w.step = 1; w.cart = []; renderRentalStep();
+    };
+    if (w.cart.length) {
+      document.getElementById("rw-tophoto").onclick = () => { w.step = 4; renderRentalStep(); };
+      $app().querySelectorAll("[data-rm]").forEach(b => b.onclick = () => {
+        w.cart.splice(+b.dataset.rm, 1); renderRentalStep();
+      });
+    }
     document.getElementById("rw-cats").onclick = (e) => {
       if (!e.target.dataset.c) return;
       w.itemCat = e.target.dataset.c;
@@ -475,7 +495,8 @@ async function renderRentalStep() {
     <div class="flexrow"><input id="rw-rest" type="date"><button class="btn small secondary" id="rw-rest-add">追加</button></div>
     <div id="rw-rest-list" class="chips" style="margin-top:6px">${w.rest_days.map(d =>
       `<span class="chip" data-d="${d}">${fmtShort(d)} ✕</span>`).join("")}</div>
-    <div class="btnrow"><button class="btn" id="rw-next">次へ（写真）</button></div>`;
+    <div class="btnrow"><button class="btn green" id="rw-next">この現場のリストに追加</button></div>
+    <p class="muted">追加後、同じ現場に別の商品を続けて選べます</p>`;
     document.getElementById("rw-back").onclick = () => { save3(); w.step = 2; renderRentalStep(); };
     const save3 = () => { w.vendor = v("rw-vendor"); w.qty = v("rw-qty"); w.start_date = v("rw-start"); w.due_date = v("rw-due"); };
     document.getElementById("rw-sun").onclick = () => { w.skip_sundays = !w.skip_sundays;
@@ -498,7 +519,12 @@ async function renderRentalStep() {
       if (!w.start_date) errs.start_date = "レンタル開始日を選んでください";
       if (w.start_date && w.due_date && w.due_date < w.start_date) errs.due_date = "返却予定日は開始日以降にしてください";
       if (Object.keys(errs).length) return showErrors(errs);
-      w.step = 4; renderRentalStep();
+      // カートに1台分として追加。業者・日付・休止は次の入力へ引き継ぐ
+      w.cart.push({ item: w.item, qty: +w.qty, vendor: w.vendor,
+        start_date: w.start_date, due_date: w.due_date,
+        skip_sundays: w.skip_sundays, rest_days: [...w.rest_days], client_key: uid() });
+      w.item = null; w.qty = 1; w.itemQ = "";
+      w.step = 2; renderRentalStep();
     };
     return;
   }
@@ -506,43 +532,47 @@ async function renderRentalStep() {
     $app().innerHTML = `
     <button class="backlink" id="rw-back">← 戻る</button>
     <div class="stephead"><span class="no">4／${total}</span><span class="t">写真・伝票を追加（任意）</span></div>
+    <p class="muted">この現場の${w.cart.length}件すべてに添付されます</p>
     ${photoStepHTML(w.photos, ["レンタル開始", "機械全体", "管理番号", "請求書", "その他"], "レンタル開始")}
     <div class="btnrow"><button class="btn" id="rw-next">次へ（内容確認）</button></div>`;
-    document.getElementById("rw-back").onclick = () => { w.step = 3; renderRentalStep(); };
+    document.getElementById("rw-back").onclick = () => { w.step = 2; renderRentalStep(); };
     bindPhotoStep(w, () => renderRentalStep());
     document.getElementById("rw-next").onclick = () => { w.step = 5; renderRentalStep(); };
     return;
   }
-  /* step 5: 確認 */
+  /* step 5: 確認（現場ごとにまとめて） */
   $app().innerHTML = `
   <button class="backlink" id="rw-back">← 戻る</button>
   <div class="stephead"><span class="no">5／${total}</span><span class="t">内容確認</span></div>
   <div class="card">
-    <table class="confirm-table">
-      <tr><td>現場</td><td>${esc(w.site.name)}</td></tr>
-      <tr><td>商品</td><td>${esc(w.item.name)} ${esc(w.item.spec || "")}</td></tr>
-      <tr><td>レンタル業者</td><td>${esc(w.vendor)}</td></tr>
-      <tr><td>数量</td><td>${esc(w.qty)}台</td></tr>
-      <tr><td>開始日</td><td>${fmtDate(w.start_date)}</td></tr>
-      <tr><td>返却予定日</td><td>${w.due_date ? fmtDate(w.due_date) : "未定（返却時に登録）"}</td></tr>
-      <tr><td>休止</td><td>${w.skip_sundays ? "日曜" : "なし"}${w.rest_days.length ? "＋" + w.rest_days.length + "日" : ""}</td></tr>
+    <div class="tt" style="font-weight:800;font-size:1.15rem">${esc(w.site.name)}</div>
+    <table class="confirm-table" style="margin-top:6px">
+      ${w.cart.map(c => `<tr><td>${esc(c.item.name)} ${esc(c.item.spec || "")}</td>
+        <td>${c.qty}台　${fmtShort(c.start_date)}〜${c.due_date ? fmtShort(c.due_date) : "未定"}
+        ${c.skip_sundays || c.rest_days.length ? "<br><span class='muted'>休止：" +
+          (c.skip_sundays ? "日曜" : "") + (c.rest_days.length ? " ＋" + c.rest_days.length + "日" : "") + "</span>" : ""}</td></tr>`).join("")}
+      <tr><td>レンタル業者</td><td>${esc(w.cart[0] ? w.cart[0].vendor : "")}</td></tr>
       <tr><td>写真</td><td>${w.photos.length}枚</td></tr>
     </table>
   </div>
-  <div class="btnrow"><button class="btn green" id="rw-go" style="min-height:64px">この内容で登録する</button></div>`;
+  <div class="btnrow"><button class="btn green" id="rw-go" style="min-height:64px">${w.cart.length}件を登録する</button></div>`;
   document.getElementById("rw-back").onclick = () => { w.step = 4; renderRentalStep(); };
   document.getElementById("rw-go").onclick = (ev) => guard(ev.target, async () => {
-    const body = { site_id: w.site.id, vendor_name: w.vendor, item_id: w.item.id, qty: +w.qty,
-      start_date: w.start_date, due_date: w.due_date, client_key: w.client_key,
-      skip_sundays: w.skip_sundays, rest_days: w.rest_days,
-      photo_ids: w.photos.filter(p => p.id).map(p => p.id),
-      skip_photo: !w.photos.some(p => p.id) };
-    const r = await submitOrQueue("/api/rentals", body);
-    ev.target.textContent = "この内容で登録する";
-    if (!r.ok) return showErrors(r.data.errors);
+    const photoIds = w.photos.filter(p => p.id).map(p => p.id);
+    let okCount = 0, queued = false;
+    for (const c of w.cart) {
+      const body = { site_id: w.site.id, vendor_name: c.vendor, item_id: c.item.id, qty: c.qty,
+        start_date: c.start_date, due_date: c.due_date, client_key: c.client_key,
+        skip_sundays: c.skip_sundays, rest_days: c.rest_days,
+        photo_ids: photoIds, skip_photo: photoIds.length === 0 };
+      const r = await submitOrQueue("/api/rentals", body);
+      if (r.ok) okCount++;
+      if (r.queued) queued = true;
+    }
+    ev.target.textContent = `${w.cart.length}件を登録する`;
     draftClear("rental");
-    renderDone("レンタル開始を登録しました", r.queued, [
-      ["同じ現場でもう1件登録", () => { startRental(); window.__rw.site = w.site; window.__rw.step = 2; renderRentalStep(); }],
+    renderDone(`${okCount}件のレンタルを登録しました`, queued, [
+      ["同じ現場でさらに追加", () => { startRental(); window.__rw.site = w.site; window.__rw.step = 2; renderRentalStep(); }],
       ["別の現場を登録", () => startRental()],
       ["ホームへ戻る", () => renderHome()],
     ]);
@@ -938,20 +968,28 @@ async function renderLedger() {
         処分代 ${x.amount != null ? "<b>" + x.amount.toLocaleString() + "円</b>" : "を入力"}</span></div>
       <div class="sub">入力：${esc(x.creator || "—")}</div></div>
     <button class="btn small red" onclick="__delRec('waste',${x.id},'${esc(x.waste_type)}')">削除</button></div>`;
+  let monthRental = 0, monthWaste = 0;
   const blocks = Object.entries(groups).map(([site, g]) => {
     const rTotal = g.r.reduce((s2, r) => s2 + (r.amount_est || 0), 0);
     const wTotal = g.w.reduce((s2, x) => s2 + (x.amount || 0), 0);
-    return `<h2 style="margin-top:18px">${esc(site)}</h2>
-      <div class="muted" style="margin:-6px 0 6px">レンタル ${rTotal.toLocaleString()}円 ＋ 処分代 ${wTotal.toLocaleString()}円
-      ＝ <b>${(rTotal + wTotal).toLocaleString()}円</b></div>
+    monthRental += rTotal; monthWaste += wTotal;
+    return `<h2 style="margin-top:18px">${esc(site)}
+      <span style="float:right;font-size:1.05rem">${(rTotal + wTotal).toLocaleString()}円</span></h2>
+      <div class="muted" style="margin:-6px 0 6px">レンタル ${rTotal.toLocaleString()}円 ＋ 処分代 ${wTotal.toLocaleString()}円</div>
       ${g.r.map(rentalRow).join("")}${g.w.map(wasteRow).join("")}`;
   }).join("");
+  const [yy, mm] = m.split("-");
   $app().innerHTML = `
   <button class="backlink" onclick="renderHome()">← ホームへ</button>
   <h1>記録簿</h1>
   <div class="flexrow" style="margin:6px 0 10px">
     <label class="f" style="margin:0">表示する月</label>
     <input type="month" id="lg-month" value="${m}" style="width:180px">
+  </div>
+  <div class="homehead" style="padding:14px 16px">
+    <div class="sub">${+yy}年${+mm}月の合計</div>
+    <div class="name" style="font-size:1.6rem">${(monthRental + monthWaste).toLocaleString()}円</div>
+    <div class="sub">レンタル ${monthRental.toLocaleString()}円 ／ 処分代 ${monthWaste.toLocaleString()}円 ／ ${Object.keys(groups).length}現場</div>
   </div>
   ${drafts.length ? `${drafts.map(k => `
     <div class="item-row" onclick="__resume['${k}']()"><div class="grow">
