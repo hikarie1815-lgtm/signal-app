@@ -5,6 +5,7 @@ const A = { tab: "summary", month: new Date().toISOString().slice(0, 7) };
 
 function renderAdmin() {
   S.view = "menu";
+  window.__flush = null;
   document.body.classList.add("admin-wide");
   const tabs = [["summary", "月別集計・出力"], ["sites", "現場"], ["prices", "料金マスター"],
     ["import", "単価表取込"], ["users", "利用者"], ["company", "設定"]];
