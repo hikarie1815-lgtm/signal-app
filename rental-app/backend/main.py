@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from . import cloud_sync
 from . import db as D
 from .auth import create_session, current_user, hash_password, verify_password
 from .db import audit, get_db, get_pref, now_str, set_pref
@@ -22,14 +23,29 @@ app = FastAPI(title="建設レンタル・廃棄物処理管理")
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(BASE, "static")
-# 写真は永続ディスク上（DATA_DIR/uploads）に保存する。データと一緒に残る。
+# 写真は DATA_DIR/uploads に保存する。
 UPLOADS = D.UPLOADS_DIR
 os.makedirs(UPLOADS, exist_ok=True)
+
+# Firebase(Storage) が設定されていれば、起動時に data.db と写真を復元する。
+# 未設定ならローカルのみ（従来どおり）。
+if cloud_sync.init():
+    cloud_sync.restore(D.DB_PATH, UPLOADS)
 
 D.init_db()
 
 from .seed_import import seed as _seed_import  # noqa: E402
-_seed_import(UPLOADS)
+if _seed_import(UPLOADS):
+    cloud_sync.flush(D.DB_PATH)  # 初回シードを保存
+
+
+@app.middleware("http")
+async def _backup_after_writes(request: Request, call_next):
+    resp = await call_next(request)
+    # 更新系リクエストが成功したら data.db を Firebase へ（少し待ってまとめて）
+    if request.method in ("POST", "PUT", "DELETE") and resp.status_code < 400:
+        cloud_sync.mark_dirty(D.DB_PATH)
+    return resp
 
 
 def err(errors: dict, status: int = 422):
@@ -1076,6 +1092,7 @@ async def upload_photo(request: Request, file: UploadFile = File(...),
     path = os.path.join(UPLOADS, fname)
     with open(path, "wb") as f:
         f.write(await file.read())
+    cloud_sync.upload_photo(path, fname)  # Firebaseにも保存（設定時のみ）
     conn = get_db()
     try:
         conn.execute(
@@ -1421,6 +1438,7 @@ async def import_upload(request: Request, file: UploadFile = File(...),
     content = await file.read()
     with open(path, "wb") as f:
         f.write(content)
+    cloud_sync.upload_photo(path, fname)
     conn = get_db()
     try:
         conn.execute("INSERT INTO price_import_batches(filename,image_path,created_by,created_at)"

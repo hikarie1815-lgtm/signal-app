@@ -12,20 +12,20 @@ services:
         sync: false
 
   # 建設レンタル・廃棄物管理アプリ（rental-app/）
-  # データ（記録・写真）を永続化するため、有料プラン(starter)＋永続ディスクを使う。
-  # ディスクは再デプロイ・再起動でも消えないので、入力が蓄積される。
+  # データは Firebase(Storage) に永続化するので、Render は無料プランでよい。
+  # 起動時に Firebase から data.db と写真を復元し、変更のたびに保存する。
   - type: web
     name: genba-kiroku
     runtime: python
     region: singapore
-    plan: starter
+    plan: free
     rootDir: rental-app
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
-    disk:
-      name: rental-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
-      - key: RENTAL_DATA_DIR
-        value: /var/data
+      # Firebase Storage のバケット名（例: genba-kiroku.appspot.com）
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+      # サービスアカウントJSONの中身をそのまま貼る（ダッシュボードで設定）
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
