@@ -104,6 +104,14 @@ function draftClear(kind) { localStorage.removeItem("draft_" + kind); refreshDra
 function draftCount() { return ["rental","return","extend","waste"].filter(k => localStorage.getItem("draft_" + k)).length; }
 function refreshDraftCount() { const e = document.getElementById("draft-count"); if (e) e.textContent = draftCount(); }
 
+/* 入力途中でアプリを閉じても消えないよう、画面を離れる瞬間に今の入力欄を保存する。
+   各ウィザードのステップが window.__flush に「今の欄→状態→下書き保存」を登録する。 */
+function flushDraft() { try { if (typeof window.__flush === "function") window.__flush(); } catch (e) {} }
+document.addEventListener("visibilitychange", () => { if (document.hidden) flushDraft(); });
+window.addEventListener("pagehide", flushDraft);
+window.addEventListener("beforeunload", flushDraft);
+setInterval(flushDraft, 5000);  // 入力中も5秒ごとに保険で保存
+
 /* ---------------- エラー表示（日本語・項目直下） ---------------- */
 function showErrors(errors) {
   document.querySelectorAll(".field-error").forEach(e => e.remove());
@@ -212,11 +220,21 @@ function renderLogin() {
 /* ---------------- 従業員ホーム ---------------- */
 async function renderHome() {
   S.view = "home";
+  window.__flush = null;  // ウィザード外では自動保存対象なし
   document.body.classList.remove("admin-wide");
   const { data: h } = await api("/api/home");
   const now = new Date();
   const days = ["日","月","火","水","木","金","土"];
   const nowTxt = `${now.getMonth()+1}月${now.getDate()}日(${days[now.getDay()]}) ${now.getHours()}:${String(now.getMinutes()).padStart(2,"0")}`;
+  // 入力途中の下書きがあれば、続きから再開できるバナーを最上部に出す
+  const draftLabel = { rental: "レンタル開始", return: "レンタル返却", extend: "レンタル延長", waste: "廃棄物登録" };
+  const resumeFns = { rental: () => startRental(true), return: () => startReturn(true),
+    extend: () => startExtend(), waste: () => startWaste(true) };
+  window.__homeResume = resumeFns;
+  const drafts = ["rental", "return", "extend", "waste"].filter(k => draftLoad(k));
+  const resumeBanner = drafts.map(k =>
+    `<div class="alertband" style="background:#e5eefc;border-color:#9cc0f0;color:var(--blue-d)"
+      onclick="__homeResume['${k}']()">${icon("clip", 20)} 入力途中の「${draftLabel[k]}」があります（タップで続きから）</div>`).join("");
   $app().innerHTML = `
   <div class="homehead">
     <div class="name">${esc(h.user.display_name)} さん</div>
@@ -228,6 +246,7 @@ async function renderHome() {
       <div class="stat"><div class="v" id="draft-count">${draftCount()}</div><div class="k">下書き</div></div>
     </div>
   </div>
+  ${resumeBanner}
   <div class="btn-grid">
     <button class="bigbtn" onclick="startRental()"><span class="icn tint-blue">${icon("truck", 26)}</span>レンタル開始</button>
     <button class="bigbtn" onclick="startReturn()"><span class="icn tint-green">${icon("return", 26)}</span>レンタル返却</button>
@@ -385,6 +404,7 @@ function rwSave() { const w = window.__rw; draftSave("rental", { ...w, photos: w
 
 async function renderRentalStep() {
   const w = window.__rw;
+  window.__flush = null;  // ステップごとに設定し直す（古い保存処理を残さない）
   rwSave();
   const total = 5;
   if (w.step === 1) {
@@ -511,6 +531,7 @@ async function renderRentalStep() {
     document.getElementById("rw-back").onclick = () => { save3(); w.step = 2; renderRentalStep(); };
     const save3 = () => { w.vendor = v("rw-vendor"); w.qty = v("rw-qty"); w.start_date = v("rw-start");
       w.due_date = oneShot ? "" : v("rw-due"); };
+    window.__flush = () => { save3(); rwSave(); };  // 入力途中で閉じても保存
     if (!oneShot) {
       document.getElementById("rw-sun").onclick = () => { w.skip_sundays = !w.skip_sundays;
         document.getElementById("rw-sun").classList.toggle("sel", w.skip_sundays);
@@ -797,6 +818,7 @@ function startWaste(resume) {
 }
 async function renderWasteStep() {
   const w = window.__ws;
+  window.__flush = null;
   draftSave("waste", { ...w, photos: w.photos.filter(p => !p.dataUrl) });
   const total = 5;
   if (w.step === 1) {
@@ -840,6 +862,7 @@ async function renderWasteStep() {
     <div class="btnrow"><button class="btn" id="ws-next">次へ（写真）</button></div>`;
     document.getElementById("ws-back").onclick = () => { save(); w.step = 2; renderWasteStep(); };
     const save = () => { w.out_date = v("ws-date"); w.qty = v("ws-qty"); w.hauler = v("ws-hauler"); w.amount = v("ws-amount"); };
+    window.__flush = () => { save(); draftSave("waste", { ...w, photos: w.photos.filter(p => !p.dataUrl) }); };
     document.getElementById("ws-units").onclick = (e) => {
       if (!e.target.dataset.u) return;
       save(); w.unit = e.target.dataset.u; renderWasteStep();
@@ -906,6 +929,7 @@ async function renderWasteStep() {
 
 /* ================= 記録簿（月単位・現場ごと・入力者表示） ================= */
 async function renderLedger() {
+  window.__flush = null;
   S.ledgerMonth = S.ledgerMonth || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
   const m = S.ledgerMonth;
   const [{ data: rentals }, { data: waste }] = await Promise.all([
