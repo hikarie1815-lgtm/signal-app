@@ -13,8 +13,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
+
+
+def _log(msg: str) -> None:
+    print(f"[cloud_sync] {msg}", flush=True)
+    sys.stdout.flush()
 
 _bucket = None
 _enabled = False
@@ -40,6 +46,7 @@ def init() -> bool:
     bucket_name = os.environ.get("FIREBASE_STORAGE_BUCKET")
     creds = _load_credentials()
     if not bucket_name or not creds:
+        _log(f"未設定のため無効（bucket={bool(bucket_name)}, creds={bool(creds)}）")
         return False
     try:
         import firebase_admin
@@ -49,9 +56,10 @@ def init() -> bool:
                 credentials.Certificate(creds), {"storageBucket": bucket_name})
         _bucket = storage.bucket()
         _enabled = True
+        _log(f"Firebase接続OK bucket={bucket_name}")
         return True
     except Exception as e:  # ライブラリ未導入・認証失敗などは黙ってローカル動作
-        print(f"[cloud_sync] Firebase無効化: {e}")
+        _log(f"Firebase無効化（設定を確認してください）: {e}")
         return False
 
 
@@ -68,7 +76,7 @@ def restore(db_path: str, uploads_dir: str) -> None:
         if blob.exists():
             os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
             blob.download_to_filename(db_path)
-            print("[cloud_sync] data.db を復元しました")
+            _log("data.db を復元しました")
         os.makedirs(uploads_dir, exist_ok=True)
         for b in _bucket.list_blobs(prefix="uploads/"):
             name = b.name[len("uploads/"):]
@@ -77,9 +85,9 @@ def restore(db_path: str, uploads_dir: str) -> None:
             dst = os.path.join(uploads_dir, name)
             if not os.path.exists(dst):
                 b.download_to_filename(dst)
-        print("[cloud_sync] 写真を復元しました")
+        _log("写真を復元しました")
     except Exception as e:
-        print(f"[cloud_sync] 復元エラー: {e}")
+        _log(f"復元エラー: {e}")
 
 
 def upload_photo(local_path: str, filename: str) -> None:
@@ -88,7 +96,7 @@ def upload_photo(local_path: str, filename: str) -> None:
     try:
         _bucket.blob(f"uploads/{filename}").upload_from_filename(local_path)
     except Exception as e:
-        print(f"[cloud_sync] 写真アップロード失敗: {e}")
+        _log(f"写真アップロード失敗: {e}")
 
 
 def mark_dirty(db_path: str) -> None:
@@ -112,10 +120,9 @@ def _debounced_upload(db_path: str) -> None:
         _bucket.blob("data.db").upload_from_filename(db_path)
         _last_upload = time.time()
     except Exception as e:
-        global _dirty2
         with _lock:
             _dirty = True  # 失敗したら次回に持ち越し
-        print(f"[cloud_sync] data.db アップロード失敗: {e}")
+        _log(f"data.db アップロード失敗: {e}")
 
 
 def flush(db_path: str) -> None:
@@ -125,4 +132,4 @@ def flush(db_path: str) -> None:
     try:
         _bucket.blob("data.db").upload_from_filename(db_path)
     except Exception as e:
-        print(f"[cloud_sync] flush失敗: {e}")
+        _log(f"flush失敗: {e}")

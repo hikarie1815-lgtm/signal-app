@@ -73,6 +73,20 @@ def device_of(request: Request) -> str:
 
 
 # ---------------------------------------------------------------- 認証・初期設定
+@app.get("/api/health")
+def health():
+    """Firebase連携が有効かを確認するための簡易ページ。"""
+    return {
+        "firebase_enabled": cloud_sync.enabled(),
+        "bucket_configured": bool(os.environ.get("FIREBASE_STORAGE_BUCKET")),
+        "credentials_configured": bool(os.environ.get("FIREBASE_SERVICE_ACCOUNT")
+                                       or os.environ.get("FIREBASE_SERVICE_ACCOUNT_FILE")),
+        "credentials_file_exists": os.path.exists(
+            os.environ.get("FIREBASE_SERVICE_ACCOUNT_FILE") or "") if
+        os.environ.get("FIREBASE_SERVICE_ACCOUNT_FILE") else None,
+    }
+
+
 @app.get("/api/state")
 def state(request: Request):
     conn = get_db()
