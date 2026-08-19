@@ -262,7 +262,8 @@ function tabMembers() {
   const need = S.meta.total_slots;
   return `<div class="card">${sideBtns}
       <h2>参加メンバー（${chosen.length}人 / 最大10人）</h2>
-      <p class="muted">押した順に①②③…の枠へ入ります。13試合で必要な出場枠は のべ${need}人分。
+      <p class="muted">①②③…の枠にはレーティングの高い人から順に入ります（試合中の投げる順も同じ）。
+        13試合で必要な出場枠は のべ${need}人分。
         ${chosen.length ? `いまの人数だと1人あたり約${num1(need / chosen.length)}試合です。`
           : "4人以上（⑦⑧を4人制で行う場合）選んでください。"}</p>
       <div class="plist">${cards || `<p class="empty">このチームに選手がいません</p>`}</div>
@@ -286,13 +287,13 @@ function tabAuto() {
         return `<tr><td>${CIRCLE[g.game_no - 1] || g.game_no}</td>
           <td>${esc(info.name)}</td>
           <td>${g.mode}(${g.size})</td>
-          <td>${g.players.map((p) => esc(p.name)).join("・")}</td>
+          <td>${g.players.map((p) => `${p.order} ${esc(p.name)}`).join(" → ")}</td>
           <td class="num">${pct(g.win_prob)}</td>
           <td><span class="pill tag-${g.tag}">${g.tag}</span></td></tr>`;
       }).join("")}
     </table>
     <h3>出場数</h3>
-    <div class="chips">${r.counts.map((c) => `<span class="chip">${esc(c.name)} ${c.games}</span>`).join("")}</div>
+    <div class="chips">${r.counts.map((c) => `<span class="chip">${esc(c.name)} <b>${c.games}</b>試合</span>`).join("")}</div>
     ${r.warnings.map((w) => `<p class="muted">※ ${esc(w)}</p>`).join("")}
     <div class="row" style="margin-top:10px">
       <button class="btn primary" data-act="auto-apply">この編成で決定</button>
@@ -352,7 +353,8 @@ function tabSheet() {
     if (!p) return `<td></td>`;
     const on = g[side].find((x) => x.player_id === p.id);
     return `<td class="cell ${on ? "on" : ""} ${on && on.locked ? "lock" : ""}"
-      data-act="cell" data-g="${g.game_no}" data-side="${side}" data-id="${p.id}">${on ? "●" : ""}</td>`;
+      data-act="cell" data-g="${g.game_no}" data-side="${side}" data-id="${p.id}"
+      title="${on ? `${on.order}番目に投げる` : ""}">${on ? on.order : ""}</td>`;
   };
   const wl = (g, side) => {
     const cls = g.winner === side ? "w" : g.winner ? "l" : "";
@@ -411,7 +413,8 @@ function tabGames() {
   const chip = (g, side, p) => {
     const on = g[side].find((x) => x.player_id === p.id);
     return `<span class="chip ${on ? "on" : ""}" data-act="cell" data-g="${g.game_no}"
-      data-side="${side}" data-id="${p.id}">${esc(p.name)}${on && on.locked ? " 固定" : ""}</span>`;
+      data-side="${side}" data-id="${p.id}">${on ? `<b>${on.order}</b> ` : ""}${esc(p.name)}${
+      on && on.locked ? " 固定" : ""}</span>`;
   };
   const fc = {};
   (d.forecast.games || []).forEach((g) => { fc[g.game_no] = g; });

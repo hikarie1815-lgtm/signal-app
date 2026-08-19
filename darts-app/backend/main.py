@@ -134,6 +134,14 @@ def delete_team(team_id: int):
 
 
 # ---------------------------------------------------------------- 選手
+def by_rating(players: list[dict]) -> list[dict]:
+    """レーティングの高い順に並べる（同じなら名前順）。
+
+    出場の順番（①②③…、投げる順）はすべてこの並びに合わせる。
+    """
+    return sorted(players, key=lambda p: (-p["rating"], p["name"]))
+
+
 def player_view(p: dict) -> dict:
     """DBの選手行に、種目ごとの強さ(Rt換算)を足して返す。"""
     s = R.player_skills(p.get("rating"), p.get("ppd"), p.get("mpr"))
@@ -147,7 +155,7 @@ def list_players(team_id: int):
     conn = get_db()
     ps = rows(conn, "SELECT * FROM players WHERE team_id=? AND deleted=0 ORDER BY id", (team_id,))
     conn.close()
-    return {"players": [player_view(p) for p in ps]}
+    return {"players": by_rating([player_view(p) for p in ps])}
 
 
 @app.post("/api/players")
@@ -291,11 +299,16 @@ def delete_match(match_id: int):
 
 
 def roster(conn, match_id: int, side: str) -> list[dict]:
-    """その節に出る（＝スコアシートの①〜⑩に書いた）選手。"""
+    """その節に出る（＝スコアシートの①〜⑩に書いた）選手。
+
+    ①がいちばんレーティングの高い人になるように並べ替えて返す。
+    あとからレーティングを直しても、並びは自動で付け直される。
+    """
     ps = rows(conn,
               "SELECT e.slot, p.* FROM entries e JOIN players p ON p.id=e.player_id"
               " WHERE e.match_id=? AND e.side=? ORDER BY e.slot", (match_id, side))
-    return [{**player_view(p), "slot": p["slot"]} for p in ps]
+    ordered = by_rating([player_view(p) for p in ps])
+    return [{**p, "slot": i + 1} for i, p in enumerate(ordered)]
 
 
 def fallback_roster(conn, match_id: int, side: str, m: dict) -> list[dict]:
@@ -312,14 +325,19 @@ def fallback_roster(conn, match_id: int, side: str, m: dict) -> list[dict]:
 
 def game_rows(conn, match_id: int) -> list[dict]:
     gs = rows(conn, "SELECT * FROM games WHERE match_id=? ORDER BY game_no", (match_id,))
-    gp = rows(conn, "SELECT gp.*, p.name FROM game_players gp JOIN players p ON p.id=gp.player_id"
-                    " JOIN games g ON g.id=gp.game_id WHERE g.match_id=?", (match_id,))
+    gp = rows(conn,
+              "SELECT gp.game_id, gp.side, gp.player_id, gp.locked, p.* FROM game_players gp"
+              " JOIN players p ON p.id=gp.player_id"
+              " JOIN games g ON g.id=gp.game_id WHERE g.match_id=?", (match_id,))
     for g in gs:
         g["size"] = G.size_of(g["mode"])
         g["alt_mode"] = G.alt_mode_of(g["game_no"])
         for side in SIDES:
-            g[side] = [{"player_id": x["player_id"], "name": x["name"], "locked": x["locked"]}
-                       for x in gp if x["game_id"] == g["id"] and x["side"] == side]
+            mine = [{**player_view(x), "player_id": x["player_id"], "locked": x["locked"]}
+                    for x in gp if x["game_id"] == g["id"] and x["side"] == side]
+            g[side] = [{"player_id": x["player_id"], "name": x["name"], "rating": x["rating"],
+                        "locked": x["locked"], "order": i + 1}
+                       for i, x in enumerate(by_rating(mine))]
     return gs
 
 
@@ -433,6 +451,9 @@ def set_entries(match_id: int, body: dict = Body(...)):
         if bad:
             conn.close()
             return err("そのチームに登録されていない選手が含まれています")
+    if ids:  # ①から順にレーティングの高い人が入るようにする
+        ps = rows(conn, "SELECT * FROM players WHERE id IN (%s)" % ",".join("?" * len(ids)), ids)
+        ids = [p["id"] for p in by_rating([player_view(p) for p in ps])]
     conn.execute("DELETE FROM entries WHERE match_id=? AND side=?", (match_id, side))
     for slot, pid in enumerate(ids, start=1):
         conn.execute("INSERT INTO entries(match_id,side,slot,player_id) VALUES(?,?,?,?)",
@@ -546,11 +567,17 @@ def auto_assign(match_id: int, body: dict = Body(default={})):
         return err(str(e))
 
     names = {p["id"]: p["name"] for p in members}
-    for row in result["games"]:
-        row["players"] = [{"player_id": pid, "name": names.get(pid, "")}
-                          for pid in row["player_ids"]]
-    result["counts"] = [{"player_id": pid, "name": names.get(pid, ""), "games": c}
-                        for pid, c in sorted(result["counts"].items(), key=lambda kv: -kv[1])]
+    rt = {p["id"]: p["rating"] for p in members}
+    order_key = (lambda pid: (-rt.get(pid, 0), names.get(pid, "")))
+    for row in result["games"]:  # 投げる順＝レーティングの高い順
+        row["player_ids"] = sorted(row["player_ids"], key=order_key)
+        row["players"] = [{"player_id": pid, "name": names.get(pid, ""),
+                           "rating": rt.get(pid), "order": i + 1}
+                          for i, pid in enumerate(row["player_ids"])]
+    result["counts"] = [{"player_id": pid, "name": names.get(pid, ""), "games": c,
+                         "rating": rt.get(pid)}
+                        for pid, c in sorted(result["counts"].items(),
+                                             key=lambda kv: (-kv[1], order_key(kv[0])))]
 
     if body.get("apply"):
         for row in result["games"]:
@@ -641,11 +668,12 @@ def match_csv(match_id: int):
     w.writerow(["節", m["section"], "日付", m["match_date"]])
     w.writerow(["HOME", m["home_team_name"], "AWAY", m["away_team_name"]])
     w.writerow([])
-    w.writerow(["No", "GAME", "人数", "R", "コイン", "HOME出場", "AWAY出場", "勝敗"])
+    w.writerow(["No", "GAME", "人数", "R", "コイン", "HOME出場(投げる順)",
+                "AWAY出場(投げる順)", "勝敗"])
     for g in gs:
         w.writerow([g["game_no"], g["name"], g["mode"], f'{g["rounds"]}R', g["coins"],
-                    "・".join(x["name"] for x in g["home"]),
-                    "・".join(x["name"] for x in g["away"]),
+                    "→".join(x["name"] for x in g["home"]),  # 投げる順
+                    "→".join(x["name"] for x in g["away"]),
                     {"home": "HOME", "away": "AWAY"}.get(g["winner"], "")])
     t = data["totals"]
     w.writerow([])

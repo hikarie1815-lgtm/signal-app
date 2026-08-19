@@ -201,3 +201,43 @@ def test_entries_need_a_registered_opponent_team(client):
     res = client.put(f"/api/matches/{mid}/entries",
                      json={"side": "away", "player_ids": hids})
     assert res.status_code == 422
+
+
+def test_players_are_listed_by_rating(client):
+    tid, _ = make_team(client, "A", [9, 14, 11])
+    names = [p["name"] for p in client.get(f"/api/teams/{tid}/players").json()["players"]]
+    assert names == ["A2", "A3", "A1"]  # Rt 14 → 11 → 9
+
+
+def test_entries_are_numbered_by_rating(client):
+    mid, hids, _ = make_match(client)
+    client.put(f"/api/matches/{mid}/entries",
+               json={"side": "home", "player_ids": list(reversed(hids))})
+    roster = client.get(f"/api/matches/{mid}").json()["home_roster"]
+    assert [p["slot"] for p in roster] == list(range(1, len(roster) + 1))
+    assert [p["rating"] for p in roster] == sorted((p["rating"] for p in roster), reverse=True)
+    assert roster[0]["name"] == "ホーム6"  # Rt13 がいちばん上
+
+
+def test_game_players_are_in_throwing_order(client):
+    mid, hids, _ = make_match(client)
+    res = client.post(f"/api/matches/{mid}/auto",
+                      json={"side": "home", "apply": True, "seed": 11}).json()
+    for g in res["match"]["games"]:
+        for side in ("home", "away"):
+            assert [x["order"] for x in g[side]] == list(range(1, len(g[side]) + 1))
+            rts = [x["rating"] for x in g[side]]
+            assert rts == sorted(rts, reverse=True)
+    for row in res["result"]["games"]:  # プレビューの並びも同じ
+        assert [p["order"] for p in row["players"]] == list(range(1, len(row["players"]) + 1))
+
+
+def test_order_follows_a_rating_change(client):
+    mid, hids, _ = make_match(client)
+    before = client.get(f"/api/matches/{mid}").json()["home_roster"]
+    last = before[-1]
+    client.put(f"/api/players/{last['player_id'] if 'player_id' in last else last['id']}",
+               json={"rating": 20})
+    after = client.get(f"/api/matches/{mid}").json()["home_roster"]
+    assert after[0]["name"] == last["name"]
+    assert after[0]["slot"] == 1
