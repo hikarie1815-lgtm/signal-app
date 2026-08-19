@@ -241,3 +241,71 @@ def test_order_follows_a_rating_change(client):
     after = client.get(f"/api/matches/{mid}").json()["home_roster"]
     assert after[0]["name"] == last["name"]
     assert after[0]["slot"] == 1
+
+
+def test_three_members_make_game7_and_8_trios(client):
+    mid, hids, aids = make_match(client)
+    client.put(f"/api/matches/{mid}/entries", json={"side": "away", "player_ids": []})
+    d = client.put(f"/api/matches/{mid}/entries",
+                   json={"side": "home", "player_ids": hids[:3]}).json()
+    modes = {g["game_no"]: g["mode"] for g in d["games"]}
+    assert modes[7] == "T" and modes[8] == "T"
+    assert d["games"][6]["size"] == 3
+
+
+def test_four_members_keep_game7_and_8_at_four(client):
+    mid, hids, _ = make_match(client)
+    client.put(f"/api/matches/{mid}/entries", json={"side": "away", "player_ids": []})
+    client.put(f"/api/matches/{mid}/entries", json={"side": "home", "player_ids": hids[:3]})
+    d = client.put(f"/api/matches/{mid}/entries",
+                   json={"side": "home", "player_ids": hids[:4]}).json()
+    modes = {g["game_no"]: g["mode"] for g in d["games"]}
+    assert modes[7] == "G" and modes[8] == "G"
+
+
+def test_the_smaller_side_decides_the_format(client):
+    mid, hids, aids = make_match(client)  # HOME 8人 / AWAY 3人
+    client.put(f"/api/matches/{mid}/entries", json={"side": "away", "player_ids": aids[:3]})
+    d = client.get(f"/api/matches/{mid}").json()
+    assert d["games"][6]["mode"] == "T"
+
+
+def test_shrinking_to_trios_drops_the_weakest_player(client):
+    # HOME8人・AWAY3人 → ⑦⑧はトリオスになり、4人組んでいたHOMEは下位が外れる
+    mid, hids, aids = make_match(client)
+    client.put(f"/api/matches/{mid}/games/7", json={"home_players": hids[:4]})
+    d = client.put(f"/api/matches/{mid}/entries",
+                   json={"side": "away", "player_ids": aids[:3]}).json()
+    assert d["games"][6]["mode"] == "T"
+    stayed = [x["name"] for x in d["games"][6]["home"]]
+    assert len(stayed) == 3
+    assert "ホーム1" not in stayed  # Rt8 の一番低い人が外れる
+
+
+def test_cannot_pick_four_when_only_three_take_part(client):
+    mid, hids, _ = make_match(client)
+    client.put(f"/api/matches/{mid}/entries", json={"side": "away", "player_ids": []})
+    client.put(f"/api/matches/{mid}/entries", json={"side": "home", "player_ids": hids[:3]})
+    assert client.put(f"/api/matches/{mid}/games/7", json={"mode": "G"}).status_code == 422
+
+
+def test_played_game_keeps_its_format(client):
+    mid, hids, _ = make_match(client)
+    client.put(f"/api/matches/{mid}/entries", json={"side": "away", "player_ids": []})
+    client.put(f"/api/matches/{mid}/games/7", json={"winner": "home"})
+    d = client.put(f"/api/matches/{mid}/entries",
+                   json={"side": "home", "player_ids": hids[:3]}).json()
+    assert d["games"][6]["mode"] == "G"  # 終わった試合はそのまま
+
+
+def test_auto_assign_with_three_members(client):
+    mid, hids, _ = make_match(client)
+    client.put(f"/api/matches/{mid}/entries", json={"side": "away", "player_ids": []})
+    client.put(f"/api/matches/{mid}/entries", json={"side": "home", "player_ids": hids[:3]})
+    res = client.post(f"/api/matches/{mid}/auto",
+                      json={"side": "home", "apply": True, "seed": 12}).json()
+    sizes = {"S": 1, "D": 2, "T": 3, "G": 4}
+    for g in res["match"]["games"]:
+        assert g["mode"] != "G"
+        assert len(g["home"]) == sizes[g["mode"]]
+    assert not res["result"]["warnings"]

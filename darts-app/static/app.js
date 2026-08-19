@@ -263,6 +263,7 @@ function tabMembers() {
   return `<div class="card">${sideBtns}
       <h2>参加メンバー（${chosen.length}人 / 最大10人）</h2>
       <p class="muted">①②③…の枠にはレーティングの高い人から順に入ります（試合中の投げる順も同じ）。
+        ⑦⑧は参加3人以下なら自動でトリオス(3人)、4人以上なら4人制になります。
         13試合で必要な出場枠は のべ${need}人分。
         ${chosen.length ? `いまの人数だと1人あたり約${num1(need / chosen.length)}試合です。`
           : "4人以上（⑦⑧を4人制で行う場合）選んでください。"}</p>
@@ -313,8 +314,10 @@ function tabAuto() {
       </div>
       <label class="row"><input id="o-consec" type="checkbox" ${o.avoid_consecutive ? "checked" : ""}>
         <span>連続する試合に続けて出さない</span></label>
-      <label class="row"><input id="o-trios" type="checkbox" ${trios() ? "checked" : ""}>
-        <span>⑦⑧をトリオス(3人)にする</span></label>
+      <label class="row"><input id="o-trios" type="checkbox" ${trios() ? "checked" : ""}
+          ${trioForced() ? "disabled" : ""}>
+        <span>⑦⑧をトリオス(3人)にする${trioForced()
+          ? `（参加${smallestSquad()}人なので自動でトリオス）` : ""}</span></label>
       <div class="row" style="margin:10px 0">
         <button class="btn dark" data-act="auto-run">オーダーを組む</button>
         <button class="btn" data-act="auto-shuffle">別の案を出す</button>
@@ -328,6 +331,17 @@ function tabAuto() {
 function trios() {
   const g7 = S.match.games.find((g) => g.game_no === 7);
   return g7 && g7.mode === "T";
+}
+
+/* 参加人数（メンバーを入れた側のうち少ない方）。未設定なら0 */
+function smallestSquad() {
+  const ns = [S.match.home_roster.length, S.match.away_roster.length].filter((n) => n > 0);
+  return ns.length ? Math.min(...ns) : 0;
+}
+/* 3人以下だと4人制はできない＝⑦⑧は自動でトリオス固定 */
+function trioForced() {
+  const n = smallestSquad();
+  return n > 0 && n < 4;
 }
 
 /* 紙のスコアシートと同じ並びの表 */
@@ -622,6 +636,9 @@ async function onClick(e) {
       const g = S.match.games.find((x) => x.game_no === gno);
       if (!g.alt_mode) return;
       const next = g.mode === g.alt_mode ? modeOf(gno) : g.alt_mode;
+      if (S.meta.mode_size[next] > smallestSquad() && smallestSquad() > 0) {
+        return toast(`参加が${smallestSquad()}人なので${S.meta.mode_size[next]}人制にはできません`);
+      }
       const keep = g.home.map((x) => x.player_id).slice(0, S.meta.mode_size[next]);
       const keepA = g.away.map((x) => x.player_id).slice(0, S.meta.mode_size[next]);
       const d = await put(`/api/matches/${mid}/games/${gno}`,
@@ -638,7 +655,9 @@ function modeOf(gno) {
 }
 
 async function applyTrios() {
-  const want = checked("o-trios") ? "T" : "G";
+  const box = document.getElementById("o-trios");
+  if (!box || box.disabled) return;  // 参加3人以下＝サーバ側で自動的にトリオス
+  const want = box.checked ? "T" : "G";
   for (const gno of [7, 8]) {
     const g = S.match.games.find((x) => x.game_no === gno);
     if (!g || g.mode === want) continue;

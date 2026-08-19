@@ -405,6 +405,53 @@ def totals(gs: list[dict]) -> dict:
             "played": home + away, "games": len(gs)}
 
 
+def entry_counts(conn, match_id: int) -> list[int]:
+    """HOME/AWAY それぞれの参加人数（メンバー未登録の側は数えない）。"""
+    out = []
+    for side in SIDES:
+        n = one(conn, "SELECT COUNT(*) c FROM entries WHERE match_id=? AND side=?",
+                (match_id, side))["c"]
+        if n:
+            out.append(n)
+    return out
+
+
+def trim_game_players(conn, game_id: int, size: int) -> None:
+    """人数が減ったとき、あふれた出場者を外す（レーティング上位を残す）。"""
+    for side in SIDES:
+        ps = rows(conn, "SELECT p.* FROM game_players gp JOIN players p ON p.id=gp.player_id"
+                        " WHERE gp.game_id=? AND gp.side=?", (game_id, side))
+        if len(ps) <= size:
+            continue
+        keep = {p["id"] for p in by_rating([player_view(p) for p in ps])[:size]}
+        for p in ps:
+            if p["id"] not in keep:
+                conn.execute("DELETE FROM game_players WHERE game_id=? AND side=? AND player_id=?",
+                             (game_id, side, p["id"]))
+
+
+def sync_flex_games(conn, match_id: int) -> None:
+    """⑦⑧（4人制）を参加人数に合わせる。
+
+    参加が3人以下なら4人は出せないのでトリオス(T)、4人以上なら雛形どおり4人制(G)。
+    結果を入れた試合と固定した試合はそのままにする。
+    """
+    counts = entry_counts(conn, match_id)
+    if not counts:
+        return
+    smallest = min(counts)
+    for g in rows(conn, "SELECT * FROM games WHERE match_id=?", (match_id,)):
+        alt = G.alt_mode_of(g["game_no"])
+        if not alt or g["winner"] or g["fixed"]:
+            continue
+        base = next(t["mode"] for t in G.TEMPLATE if t["game_no"] == g["game_no"])
+        want = alt if smallest < G.size_of(base) else base
+        if want == g["mode"]:
+            continue
+        conn.execute("UPDATE games SET mode=? WHERE id=?", (want, g["id"]))
+        trim_game_players(conn, g["id"], G.size_of(want))
+
+
 @app.get("/api/matches/{match_id}")
 def get_match(match_id: int):
     conn = get_db()
@@ -466,6 +513,7 @@ def set_entries(match_id: int, body: dict = Body(...)):
         sql += " AND player_id NOT IN (%s)" % ",".join("?" * len(ids))
         args += ids
     conn.execute(sql, args)
+    sync_flex_games(conn, match_id)
     conn.commit()
     conn.close()
     return get_match(match_id)
@@ -483,6 +531,10 @@ def update_game(match_id: int, game_no: int, body: dict = Body(...)):
     if mode not in G.MODE_SIZE:
         conn.close()
         return err("人数モードが正しくありません")
+    counts = entry_counts(conn, match_id)
+    if counts and G.size_of(mode) > min(counts):
+        conn.close()
+        return err(f"参加が{min(counts)}人なので{G.size_of(mode)}人制にはできません")
     winner = body.get("winner", g["winner"])
     if winner not in ("", "home", "away"):
         conn.close()
