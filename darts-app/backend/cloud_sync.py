@@ -45,8 +45,10 @@ def init() -> bool:
     global _bucket, _enabled
     bucket_name = os.environ.get("FIREBASE_STORAGE_BUCKET")
     creds = _load_credentials()
+    if not bucket_name and not creds:
+        return False  # ローカル保存のみ（設定していないのが普通なので何も出さない）
     if not bucket_name or not creds:
-        _log(f"未設定のため無効（bucket={bool(bucket_name)}, creds={bool(creds)}）")
+        _log(f"設定が足りないため無効（bucket={bool(bucket_name)}, creds={bool(creds)}）")
         return False
     try:
         import firebase_admin

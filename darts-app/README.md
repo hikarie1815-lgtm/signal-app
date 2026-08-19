@@ -91,7 +91,19 @@ FREEZE は運の要素が大きい（大きめ）。3〜97%に収めます。
 相手のオーダーが未定のときは、相手の参加メンバーからその人数が出ると考えた
 期待値を相手のチーム力として使います。
 
-## 5. 動かし方
+## 5. 動かし方（ローカル）
+
+必要なもの: Python 3.10以上（https://www.python.org/ 。Windowsはインストール時に
+**「Add Python to PATH」に必ずチェック**）
+
+### かんたん起動
+- Windows … `start_windows.bat` をダブルクリック
+- Mac / Linux … `start_mac.sh` をダブルクリック（またはターミナルで `bash start_mac.sh`）
+
+初回だけ準備に1〜2分かかります（`.venv` を作って必要なものを入れます）。
+起動するとブラウザで **http://localhost:8000** が開きます。終わるときは Ctrl+C。
+
+### コマンドで動かす場合
 
 ```bash
 cd darts-app
@@ -99,7 +111,16 @@ pip install -r requirements.txt
 uvicorn backend.main:app --reload      # http://localhost:8000
 ```
 
-スマホから使うときは、同じWi-FiでPCのIPアドレス（例 `http://192.168.1.10:8000`）を開きます。
+### スマホから使う
+PCとスマホを同じWi-Fiにつなぎ、PCのIPアドレスを開きます（例 `http://192.168.1.10:8000`）。
+
+- WindowsのIP確認: コマンドプロンプトで `ipconfig` →「IPv4 アドレス」
+- MacのIP確認: システム設定 → Wi-Fi → 詳細
+- 初回はWindowsのファイアウォール確認ダイアログで「アクセスを許可する」を選びます
+
+### データの持ち出し・バックアップ
+記録は `darts-app/darts.db` の1ファイルに入っています。コピーしておけばバックアップになり、
+別のPCに置けばそのまま引き継げます。
 
 ### テスト
 
@@ -116,7 +137,7 @@ SQLite（既定は `darts-app/darts.db`）。環境変数で変えられます�
 |---------|------|
 | `DARTS_DATA_DIR` | データの置き場所（Renderの永続ディスクなら `/var/data`） |
 | `DARTS_DB` | DBファイルのパスを直接指定 |
-| `FIREBASE_STORAGE_BUCKET` / `FIREBASE_SERVICE_ACCOUNT` | 設定するとFirebase Storageに自動バックアップ・復元（無料プランでもデータが消えない） |
+| `FIREBASE_STORAGE_BUCKET` / `FIREBASE_SERVICE_ACCOUNT` | 設定するとFirebase Storageに自動バックアップ・復元（無料プランでもデータが消えない）。使うときは `pip install -r requirements-cloud.txt` も必要 |
 | `DARTS_CLOUD_PATH` | Firebase上の保存パス（既定 `darts/darts.db`） |
 
 ## 6. 画面まわりのメモ

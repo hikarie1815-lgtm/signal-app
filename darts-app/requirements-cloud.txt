@@ -1,0 +1,2 @@
+# Firebase Storage へ自動バックアップするときだけ必要（ローカル利用なら不要）
+firebase-admin>=6.5

@@ -38,7 +38,7 @@ services:
     region: singapore
     plan: free
     rootDir: darts-app
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt -r requirements-cloud.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:
       # 任意: Firebase Storage に自動バックアップしたいときだけ設定する
