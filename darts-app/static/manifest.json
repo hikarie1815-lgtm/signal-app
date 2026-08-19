@@ -1,0 +1,9 @@
+{
+  "name": "KI-LEAGUE 対戦表",
+  "short_name": "KI-LEAGUE",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef1f5",
+  "theme_color": "#14181f",
+  "icons": [{ "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
