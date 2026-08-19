@@ -29,3 +29,22 @@ services:
       # サービスアカウントJSONの中身をそのまま貼る（ダッシュボードで設定）
       - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
+
+  # ダーツリーグ 対戦表・スコアシートアプリ（darts-app/）
+  # データは SQLite。Firebase を設定すれば無料プランでも消えない。
+  - type: web
+    name: ki-league
+    runtime: python
+    region: singapore
+    plan: free
+    rootDir: darts-app
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # 任意: Firebase Storage に自動バックアップしたいときだけ設定する
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+      - key: DARTS_CLOUD_PATH
+        value: darts/darts.db

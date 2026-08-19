@@ -1,0 +1,136 @@
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+:root {
+  --ink: #14181f; --line: #c8cfd8; --line-strong: #6b7686; --bg: #eef1f5;
+  --card: #ffffff; --accent: #b4141c; --accent-d: #8d0f16; --blue: #14549e;
+  --green: #1a7f37; --muted: #5d6b7c; --chip: #eef2f7;
+}
+html { font-size: 16px; }
+body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  background: var(--bg); color: var(--ink); line-height: 1.5; padding-bottom: 48px; }
+#app { max-width: 1080px; margin: 0 auto; padding: 12px; }
+
+h1 { font-size: 1.15rem; }
+h2 { font-size: 1.05rem; margin: 14px 0 8px; }
+h3 { font-size: .98rem; margin: 10px 0 6px; }
+.muted { color: var(--muted); font-size: .88rem; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px; margin: 10px 0; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.spread { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.grow { flex: 1 1 auto; }
+
+/* ヘッダー（紙のシートのロゴまわり） */
+.head { display: flex; align-items: center; gap: 10px; padding: 6px 2px 10px; }
+.logo { width: 38px; height: 38px; border-radius: 50%; background: var(--ink); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-weight: 800; }
+.head .sub { font-size: .72rem; letter-spacing: .06em; color: var(--muted); }
+nav.tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+nav.tabs button { flex: 1 1 0; min-width: 90px; padding: 10px 8px; border: 1px solid var(--line);
+  background: var(--card); border-radius: 10px; font-size: .95rem; font-weight: 700;
+  color: var(--muted); cursor: pointer; }
+nav.tabs button.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+button, select, input, textarea { font: inherit; color: inherit; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; padding: 8px 16px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); font-weight: 700; cursor: pointer; }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.dark { background: var(--ink); border-color: var(--ink); color: #fff; }
+.btn.small { min-height: 34px; padding: 4px 10px; font-size: .85rem; font-weight: 600; }
+.btn[disabled] { opacity: .45; cursor: default; }
+label.field { display: block; margin: 8px 0; font-size: .85rem; color: var(--muted); font-weight: 700; }
+label.field > input, label.field > select, label.field > textarea {
+  display: block; width: 100%; margin-top: 4px; padding: 9px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: #fff; font-weight: 400; color: var(--ink); }
+.inline-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0 10px; }
+
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--chip);
+  font-size: .78rem; font-weight: 700; }
+.pill.win { background: #e2f2e6; color: var(--green); }
+.pill.lose { background: #fbe6e6; color: var(--accent); }
+.pill.blue { background: #e4edf9; color: var(--blue); }
+.tag-勝ち計算 { background: #d9f0e0; color: #14682c; }
+.tag-優位 { background: #e6f2da; color: #3d6b12; }
+.tag-五分 { background: #f2eeda; color: #74600f; }
+.tag-劣勢 { background: #f7e7da; color: #8a4a10; }
+.tag-捨て試合 { background: #f0e2e2; color: #8d3030; }
+.tag-結果 { background: var(--chip); color: var(--muted); }
+
+table.data { width: 100%; border-collapse: collapse; font-size: .9rem; }
+table.data th, table.data td { border: 1px solid var(--line); padding: 6px 7px; text-align: left; }
+table.data th { background: #f5f7fa; font-size: .82rem; }
+table.data td.num, table.data th.num { text-align: right; }
+
+/* 選手リスト */
+.plist { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.pcard { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: #fff;
+  cursor: pointer; }
+.pcard.on { border-color: var(--ink); background: #f3f6fa; box-shadow: inset 0 0 0 1px var(--ink); }
+.pcard .nm { font-weight: 700; }
+.pcard .slot { float: right; font-size: .8rem; color: var(--accent); font-weight: 800; }
+
+/* 予測サマリー */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.stat { background: #f6f8fb; border: 1px solid var(--line); border-radius: 10px; padding: 8px;
+  text-align: center; }
+.stat b { display: block; font-size: 1.25rem; }
+.stat span { font-size: .75rem; color: var(--muted); }
+.bar { height: 8px; border-radius: 4px; background: #e3e8ee; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--green); }
+
+/* スコアシート（紙の雛形） */
+.sheet-wrap { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px; }
+table.sheet { border-collapse: collapse; margin: 0 auto; font-size: .8rem; }
+table.sheet th, table.sheet td { border: 1px solid var(--line-strong); text-align: center;
+  padding: 2px; }
+table.sheet .slot-no { width: 26px; font-size: .72rem; color: var(--muted); }
+table.sheet .slot-h { width: 26px; height: 92px; padding: 2px 0; vertical-align: top; }
+table.sheet .nm-v { height: 88px; overflow: hidden; font-size: .72rem; line-height: 1.15;
+  font-weight: 700; text-align: center; }
+table.sheet td.cell { width: 26px; height: 26px; cursor: pointer; }
+table.sheet td.cell.on { background: var(--ink); color: #fff; font-weight: 800; }
+table.sheet td.cell.on.lock { background: var(--accent); }
+table.sheet td.gname { min-width: 96px; font-weight: 700; }
+table.sheet td.gmeta { min-width: 34px; color: var(--muted); }
+table.sheet td.wl { width: 40px; cursor: pointer; font-weight: 800; }
+table.sheet td.wl.w { background: #dff0e4; color: var(--green); }
+table.sheet td.wl.l { background: #f6e3e3; color: var(--accent); }
+table.sheet th.side { background: #f2f5f8; font-size: .8rem; }
+table.sheet tr.total td { font-weight: 800; background: #f7f9fb; }
+.sign { width: 150px; }
+.sign input { width: 100%; border: none; border-bottom: 1px solid var(--line); padding: 4px 2px; }
+
+/* 試合カード（スマホ入力用） */
+.gcard { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 8px 0;
+  background: #fff; }
+.gcard .no { font-weight: 800; color: var(--accent); margin-right: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: .82rem;
+  background: #fff; cursor: pointer; }
+.chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.wlbtns { display: flex; gap: 6px; }
+.wlbtns button { flex: 1; min-height: 40px; border-radius: 8px; border: 1px solid var(--line);
+  background: #fff; font-weight: 700; cursor: pointer; }
+.wlbtns button.on-h { background: var(--green); border-color: var(--green); color: #fff; }
+.wlbtns button.on-a { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+.toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+  background: rgba(20, 24, 31, .93); color: #fff; padding: 10px 16px; border-radius: 10px;
+  font-size: .9rem; z-index: 50; max-width: 90%; }
+.empty { text-align: center; color: var(--muted); padding: 24px 8px; }
+
+@media (max-width: 640px) {
+  #app { padding: 8px; }
+  table.sheet { font-size: .74rem; }
+}
+@media print {
+  body { background: #fff; }
+  nav.tabs, .no-print, .head .sub, button { display: none !important; }
+  #app { max-width: none; padding: 0; }
+  .card { border: none; padding: 0; margin: 4px 0; }
+  .sheet-wrap { overflow: visible; border: none; padding: 0; }
+  table.sheet { font-size: .68rem; }
+  @page { size: A4 landscape; margin: 8mm; }
+}
